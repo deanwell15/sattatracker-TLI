@@ -19,10 +19,10 @@
         <div class="flex flex-col items-center gap-2">
           <div class="flex items-center gap-2">
             <div class="w-2 h-2 rounded-full" style="background:#60a5fa; box-shadow:0 0 10px #60a5fa;"></div>
-            <span class="text-[11px] font-bold uppercase tracking-[4px]" style="color:rgba(255,255,255,0.35);">TLI Tracker</span>
+            <span class="text-[11px] font-bold uppercase tracking-[4px]" style="color:rgba(255,255,255,0.35);">Deanfinite</span>
             <div class="w-2 h-2 rounded-full" style="background:#60a5fa; box-shadow:0 0 10px #60a5fa;"></div>
           </div>
-          <h2 class="text-xl font-black tracking-tight" style="color:rgba(255,255,255,0.92);">Добро пожаловать!</h2>
+          <h2 class="text-xl font-black tracking-tight" style="color:rgba(255,255,255,0.92);">Добро пожаловать в Deanfinite!</h2>
         </div>
 
         <div class="h-px w-full" style="background: linear-gradient(90deg, transparent, rgba(96,165,250,0.3), transparent);"></div>

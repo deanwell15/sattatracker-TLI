@@ -25,7 +25,7 @@
           <div class="flex items-center gap-3">
             <div class="w-[7px] h-[7px] rounded-full" style="background:#4ade80; box-shadow:0 0 6px #4ade80;"></div>
             <div>
-              <div class="text-[13px] font-black tracking-wide" style="color: rgba(255,255,255,0.85);">TLI Sattatracker</div>
+              <div class="text-[13px] font-black tracking-wide" style="color: rgba(255,255,255,0.85);">Deanfinite</div>
               <div class="text-[9px] font-mono" style="color: rgba(255,255,255,0.22);">v{{ VERSION }} · Setup Panel</div>
             </div>
           </div>

@@ -5,6 +5,7 @@ mod game_state_machine;
 mod models;
 mod parser;
 mod pricing;
+mod settings;
 mod tailer;
 mod utils;
 
@@ -14,7 +15,10 @@ use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 use tokio::sync::watch;
 use tokio::task;
 
-struct SettingsState(watch::Sender<AppSettings>);
+struct SettingsState {
+    sender: watch::Sender<AppSettings>,
+    path: std::path::PathBuf,
+}
 
 #[tauri::command]
 fn set_click_through(window: tauri::Window, ignore: bool) {
@@ -34,21 +38,16 @@ fn save_settings(
         apply_tax,
     };
 
-    state.0.send(settings.clone()).map_err(|e| e.to_string())?;
-
-    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    let config_path = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("config.json")))
-        .unwrap_or_else(|| std::path::PathBuf::from("config.json"));
-    std::fs::write(&config_path, json).map_err(|e| e.to_string())?;
+    settings::save(&state.path, &settings)?;
+    // Saving also works when the game log is absent and no receiver is running.
+    state.sender.send_replace(settings);
 
     Ok(())
 }
 
 #[tauri::command]
 fn load_settings(state: State<'_, SettingsState>) -> Result<AppSettings, String> {
-    Ok(state.0.borrow().clone())
+    Ok(state.sender.borrow().clone())
 }
 
 #[tauri::command]
@@ -96,24 +95,9 @@ fn get_log_path() -> String {
     }
 }
 
-fn load_settings_from_disk() -> AppSettings {
-    let config_path = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("config.json")))
-        .unwrap_or_else(|| std::path::PathBuf::from("config.json"));
-    std::fs::read_to_string(&config_path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let initial_settings = load_settings_from_disk();
-    let (settings_tx, settings_rx) = watch::channel(initial_settings.clone());
-
     tauri::Builder::default()
-        .manage(SettingsState(settings_tx))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -139,16 +123,30 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
+            let config_dir = app.path().app_config_dir()?;
+            let local_data_dir = app.path().app_local_data_dir()?;
+            std::fs::create_dir_all(&config_dir)?;
+            std::fs::create_dir_all(&local_data_dir)?;
+            let config_path = config_dir.join("config.json");
+            let initial_settings = settings::load(&config_path).unwrap_or_else(|error| {
+                eprintln!("[Deanfinite] {error}; using defaults without modifying the file");
+                AppSettings::default()
+            });
+            let (settings_tx, settings_rx) = watch::channel(initial_settings);
+            app.manage(SettingsState { sender: settings_tx, path: config_path });
+            let price_cache_path = local_data_dir.join("prices_cache.json");
+
             use std::str::FromStr;
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
             use tauri::menu::{Menu, MenuItem};
             use tauri::tray::TrayIconBuilder;
 
-            let quit_i = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Exit Deanfinite", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit_i])?;
 
             let _tray = TrayIconBuilder::new()
+                .tooltip("Deanfinite")
                 .icon(app.default_window_icon().cloned().unwrap())
                 .menu(&menu)
                 .on_menu_event(|app, event| {
@@ -192,7 +190,7 @@ pub fn run() {
                     Some(log_path) => {
                         let _ =
                             app_handle.emit("log_status", format!("Watching log: {:?}", log_path));
-                        tailer::start_tailing(app_handle, log_path, settings_rx).await;
+                        tailer::start_tailing(app_handle, log_path, price_cache_path, settings_rx).await;
                     }
                     None => {
                         let _ =

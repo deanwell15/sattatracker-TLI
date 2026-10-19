@@ -16,7 +16,7 @@
       "
     >
       <div class="flex items-center justify-between px-5 pt-4 pb-0 shrink-0">
-        <span class="text-base font-bold tracking-wide">⚙ Settings</span>
+        <span class="text-base font-bold tracking-wide">⚙ Deanfinite Settings</span>
         <button @click="cancel" class="text-white/30 hover:text-white text-lg transition-colors" style="background:none;border:none;cursor:pointer;">✕</button>
       </div>
 
@@ -311,6 +311,7 @@
 
       </div>
 
+      <p v-if="saveError" role="alert" class="px-5 pb-2 text-xs text-red-400">{{ saveError }}</p>
       <div class="px-5 pb-4 pt-3 flex gap-2 shrink-0" style="border-top: 1px solid rgba(255,255,255,0.06);">
         <button
           @click="cancel"
@@ -351,6 +352,7 @@ const TABS = [
 ];
 type TabId = 'filter' | 'appearance' | 'data';
 const activeTab = ref<TabId>('filter');
+const saveError = ref('');
 
 const PRESETS = PREDEFINED_THEMES;
 const activePresetId = ref(themeStore.activeThemeId);
@@ -421,6 +423,7 @@ let snapshotOpacity: number | null = null;
 
 watch(() => props.isOpen, (open) => {
   if (!open) return;
+  saveError.value = '';
   activeTab.value     = 'filter';
   f.minPrice          = store.minPriceThreshold;
   f.mapCost           = store.mapCost;
@@ -579,6 +582,7 @@ function resetToDefaults() {
 }
 
 async function save() {
+  saveError.value = '';
   store.minPriceThreshold = f.minPrice;
   store.mapCost           = f.mapCost;
   store.applyTax          = f.applyTax;
@@ -597,7 +601,10 @@ async function save() {
       ignoreAuction: f.ignoreAuction,
       applyTax:      f.applyTax,
     });
-  } catch {  }
+  } catch (error) {
+    saveError.value = `Deanfinite: не удалось сохранить настройки: ${String(error)}`;
+    return;
+  }
 
   const theme = buildCurrentTheme();
   const isPreset = activePresetId.value !== 'custom' && PRESETS[activePresetId.value];

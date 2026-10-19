@@ -1,13 +1,18 @@
 [package]
-name = "tli-sattatracker"
+name = "deanfinite"
 version = "1.2.11"
-description = "Loot tracker overlay for Torchlight Infinite"
+description = "Deanfinite — Torchlight: Infinite Loot Tracker"
 authors = ["sattatrapy"]
 license = "MIT"
 edition = "2021"
+default-run = "Deanfinite"
+
+[[bin]]
+name = "Deanfinite"
+path = "src/main.rs"
 
 [lib]
-name = "tli_sattatracker_lib"
+name = "deanfinite_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

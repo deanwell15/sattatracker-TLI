@@ -1,49 +1,20 @@
-# Идентичность и независимость форка: предложение следующих этапов
+# Deanfinite: следующие этапы независимости
 
-Это **план**, основанный на техническом аудите ревизии
-`68d7008dcb7e6479e3ae73d0a1b148cc0545fdfe`. Здесь не реализованы изменения
-идентификатора, путей, runtime-сети, parser или расчётов.
+Deanfinite — независимый форк SattaTracker; репозиторий пока остаётся
+`deanwell15/sattatracker-TLI`, исходная атрибуция sattatrapy/MIT сохранена.
 
-## 1. Текущая идентичность
+## 1. Принятая идентичность
 
-| Область | Фактическое состояние / исходник | Предложение после согласования |
-|---|---|---|
-| Product name / title | `TLI-Sattatracker`, [tauri.conf.json:3,15](../src-tauri/tauri.conf.json#L3) | **EmberLedger TLI** |
-| Tauri identifier | `com.fedin.sattatracker`, [tauri.conf.json:5](../src-tauri/tauri.conf.json#L5) | **io.github.deanwell15.emberledger** |
-| npm / Cargo package | `tli-sattatracker`, [package.json:2](../package.json#L2), [Cargo.toml:2](../src-tauri/Cargo.toml#L2) | `emberledger-tli` |
-| Rust library / entrypoint | `tli_sattatracker_lib`, [Cargo.toml:10](../src-tauri/Cargo.toml#L10), [main.rs:5](../src-tauri/src/main.rs#L5) | Возможное переименование в `emberledger_tli_lib`; технически не обязательно для внешнего бренда |
-| Windows EXE | Cargo binary из package name: `tli-sattatracker.exe` | `emberledger-tli.exe`; проверить фактический результат сборки |
-| Cargo authors / MIT | `sattatrapy`, [Cargo.toml:5](../src-tauri/Cargo.toml#L5), [LICENSE:3](../LICENSE#L3) | Сохранить исходную атрибуцию и MIT; добавить maintainer форка, не присваивая авторство исходного кода |
-| UI / User-Agent | [BuilderPanel.vue:28](../src/components/BuilderPanel.vue#L28), [assets.rs:25,70](../src-tauri/src/assets.rs#L25), заголовок README | Согласовать новые подписи с сохранением credits |
-| Иконки приложения | `src-tauri/icons/*`, список в [tauri.conf.json:39](../src-tauri/tauri.conf.json#L39) | Собственная оригинальная иконка с подтверждёнными правами; не включать игровые изображения без основания |
-| Windows manifest | `requireAdministrator`, [tauri-app.manifest:6](../src-tauri/tauri-app.manifest#L6); release-only подключение [build.rs:3–5](../src-tauri/build.rs#L3) | Отдельно проверить возможность `asInvoker`; пока не менять |
-| CI | Новый тестовый workflow в форке; старый tag-release остаётся | Собственный validation/release pipeline, Authenticode и app updater — последующие задачи |
+Название **Deanfinite**, identifier **io.github.deanwell15.deanfinite**,
+package **deanfinite**, library **deanfinite_lib**, binary **Deanfinite.exe**.
+Publisher — deanwell15. config перенесён в собственный app_config_dir;
+cache/assets/WebView отделены identifier, автоматического импорта старых данных нет.
+Подробности, ограничения и Windows checklist:
+[deanfinite-branding.md](deanfinite-branding.md).
 
-Название — предложение, проверка уникальности бренда/товарных знаков не выполнена.
-GitHub namespace идентификатора не требует предполагать владение чужим доменом.
-
-### Данные и совместимость: изменения требуют согласования
-
-- Backend `config.json` находится **рядом с EXE**, [lib.rs:39–44,99–107](../src-tauri/src/lib.rs#L39).
-- `prices_cache.json` — в Tauri AppLocalData, [tailer.rs:90–94](../src-tauri/src/tailer.rs#L90).
-- `public_assets`, `assets.zip`, `assets_version.json` — в AppLocalData,
-  [assets.rs:13–14,60–68,114–127](../src-tauri/src/assets.rs#L13).
-- При текущем identifier Windows-каталог ожидается как
-  `%LOCALAPPDATA%\com.fedin.sattatracker`; WebView имеет также собственное хранилище.
-- Frontend `tracker_config_v2`, `tracker_theme_v2`, `tli_welcomed_v1` сохраняются
-  в localStorage. Они не превращаются в обычные переносимые JSON-файлы сами собой.
-- Постоянной истории сессий/карт сейчас нет; миграцию несуществующей истории
-  обещать нельзя.
-
-Смена identifier может изменить AppLocalData/WebView storage, идентичность
-установщика и поведение upgrade/uninstall. Одного переименования папки недостаточно.
-До согласования **не меняем** identifier, пути, схему хранения и manifest.
-
-Предлагаемая миграция после согласования: backup/export настроек, новый namespace,
-явный одноразовый импорт без удаления старых данных, схема версии конфигурации,
-проверка side-by-side установки и удаления каждого продукта. Цены разделять по
-сезону/поставщику; секреты и непроверенные графические ресурсы не импортировать.
-Переход от config рядом с EXE к пользовательскому app config — отдельное изменение.
+Эта задача не заменяет текущие источники цен/ресурсов. До подтверждения новой
+Windows-сборки runtime совместимость не считается проверенной. Смена identity
+согласована; изменение экономической логики по-прежнему отложено.
 
 ## 2. Реестр сетевых зависимостей и замена
 
@@ -51,7 +22,7 @@ GitHub namespace идентификатора не требует предпол
 |---|---|---|
 | Цены `http://115.231.176.101:8080/get?season_id=N` | `pricing.rs`, интеграция в `tailer.rs`, настройки/README. Сохранить фасад PricingManager; вынести получение таблицы в заменяемые providers | Контрактные fixtures, сезон/ID/единицы FE, timeout/non-2xx/неверный JSON, offline-cache, сравнение таблиц на одинаковом входе |
 | Проверка `api.github.com/repos/sattatrapy/sattatrackerUpdate/releases/tags/Assets` | `assets.rs::check_assets_update`, `src/utils/assetUpdater.ts`, App boot | Старт без сети, свежая/старая версия, недоступный manifest; рабочая загрузка UI без upstream metadata |
-| Загрузка `github.com/sattatrapy/sattatrackerUpdate/releases/download/Assets/assets.zip` | `assets.rs::download_assets/get_assets_path`, `src/utils/assets.ts`, упаковка resources в `tauri.conf.json` после согласования путей | Все используемые иконки/кадры/эффекты, чистая установка, offline, неполный/повреждённый архив, rollback и параллельные окна |
+| Загрузка `github.com/sattatrapy/sattatrackerUpdate/releases/download/Assets/assets.zip` | `assets.rs::download_assets/get_assets_path`, `src/utils/assets.ts`, упаковка resources в `tauri.conf.json` | Все используемые иконки/кадры/эффекты, чистая установка, offline, неполный/повреждённый архив, rollback и параллельные окна |
 | Ссылки/подписи автора | README, UI credits, User-Agent, package metadata | Разделить credits и активные endpoints. Ссылки для атрибуции допустимы; runtime не должен обращаться к upstream после завершения перехода |
 | Google Fonts | `index.html`, CSS/font assets с лицензиями | Локальные шрифты/иконки; offline screenshot/smoke, отсутствие внешнего CSS/font traffic. Это внешняя зависимость, но не инфраструктура автора |
 
@@ -91,7 +62,7 @@ freshness, rate limits и полноту. Не внедрять scraping/auth о
 Общий валидатор: корректный статус/JSON/schema, ограничение размера, только
 конечные неотрицательные цены, проверка валюты/сезона, явный статус устаревания.
 Кэш: namespace по provider+season+market, атомарная запись, last-known-good,
-контролируемый TTL. Конкретный путь и миграцию cache согласовать перед реализацией.
+контролируемый TTL. Дополнительное разделение cache по provider/season согласовать перед реализацией.
 Текущее `TLI_PRICE_API_URL` сохранить как совместимый override на переходный период;
 конкатенацию query заменить структурированным URL builder.
 
@@ -114,7 +85,7 @@ freshness, rate limits и полноту. Не внедрять scraping/auth о
    хешами и проверяемой подписью, лимитами и атомарной установкой/rollback.
 4. Устранить параллельные загрузки из popout окон и зависание boot без timeout;
    не маскировать повреждённый набор под успешное обновление.
-5. Сохранить интерфейсы `getIcon/getAnim` и состав виджетов. Смену путей и сужение
+5. Сохранить интерфейсы `getIcon/getAnim` и состав виджетов. Дальнейшую смену путей и сужение
    asset scope выполнять в согласованной задаче вместе с тестами.
 
 ### 2.3. Переход без потери работоспособности
@@ -130,18 +101,14 @@ Windows, затем включается для тестового профил�
 
 ## 3. Порядок следующих работ
 
-1. Реальный run нового Windows CI; исправлять только подтверждённые ошибки сборки.
-   Зафиксировать логи, source commit, артефакты и результаты чистого Windows smoke.
-2. Согласовать название, identifier, пути/миграцию и стратегию ресурсов. Не менять
-   эти параметры в задаче CI.
-3. Исследовать допустимые источники цен; реализовать provider+cache и полноценный
-   локальный путь, затем согласованно переключить default.
-4. Получить права или создать собственные ресурсы, обеспечить bundled boot и
-   проверяемые обновления; только затем удалить upstream assets endpoints.
-5. Согласованно отделить app identity и данные, проверить installer upgrade и
-   side-by-side, затем подготовить Authenticode/собственные релизы.
-6. Ошибки статистики, parser и история сессий — последующие отдельные этапы.
+1. Завершить новый Windows CI/smoke для Deanfinite, проверить side-by-side и uninstall.
+2. Отвязаться от графических ресурсов первоначального автора: проверить права,
+   создать собственный/bundled набор и сохранить функциональность виджетов.
+3. Исследовать локальное получение рыночных цен: уже доступные логовые сведения,
+   разрешённые импорты, подтверждённые кандидаты providers и локальный кэш. Не
+   считать TLIDB/TITrack доказанными источниками и не обращаться к памяти игры.
+4. После работоспособных замен удалить upstream endpoints/fallback, проверить сеть,
+   затем собственные подписанные релизы. Не публиковать Release автоматически.
+5. Ошибки статистики и изменения parser — отдельные последующие задачи.
 
-До этих шагов сборка остаётся **собственной тестовой сборкой исходников форка**,
-а не полностью независимым runtime-продуктом. Windows CI не подтверждает
-корректность прибыли или совместимость с текущим сезоном игры.
+Существующие сетевые механизмы не отключать до проверки полноценных замен.

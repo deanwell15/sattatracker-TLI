@@ -22,7 +22,7 @@ pub async fn check_assets_update(app: AppHandle) -> Result<AssetUpdateInfo, Stri
     };
 
     let client = Client::builder()
-        .user_agent("TLI-Sattatracker")
+        .user_agent("Deanfinite")
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
@@ -67,7 +67,7 @@ pub async fn download_assets(
 
     let zip_path = local_dir.join("assets.zip");
     let client = Client::builder()
-        .user_agent("TLI-Sattatracker")
+        .user_agent("Deanfinite")
         .build()
         .map_err(|e| e.to_string())?;
 
