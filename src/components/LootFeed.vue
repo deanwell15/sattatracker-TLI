@@ -39,9 +39,8 @@
             "
           >
             <div class="shrink-0 w-6 h-6 flex items-center justify-center mr-[5px]" style="background-color: rgba(0,0,0,0.3); border-radius: 3px;">
-              <img
+              <AssetImage
                 :src="getIcon(item.item_id)"
-                @error="($event.target as HTMLImageElement).style.display='none'"
                 class="w-full h-full object-contain"
               />
             </div>
@@ -61,6 +60,7 @@
 </template>
 
 <script setup lang="ts">
+import AssetImage from './AssetImage.vue';
 import { computed } from 'vue';
 import { useTrackerStore } from '../stores/trackerStore';
 import { getIcon } from '../utils/assets';

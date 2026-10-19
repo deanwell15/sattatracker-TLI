@@ -70,7 +70,7 @@ export const PREDEFINED_THEMES: Record<string, Theme> = {
       iconBg: 'rgba(36, 41, 51, 0.8)'
     },
     radii: { widget: '4px', row: '4px', icon: '2px' },
-    fonts: { main: "Inter, 'Segoe UI', sans-serif" }
+    fonts: { main: "'Segoe UI', system-ui, sans-serif" }
   }
 };
 

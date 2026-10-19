@@ -1,4 +1,3 @@
-mod assets;
 mod bag_manager;
 mod db;
 mod game_state_machine;
@@ -204,9 +203,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            assets::check_assets_update,
-            assets::download_assets,
-            assets::get_assets_path,
             set_click_through,
             save_settings,
             load_settings,

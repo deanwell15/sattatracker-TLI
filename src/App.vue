@@ -31,7 +31,7 @@
         >
           <div class="flex items-center gap-2">
             <div class="w-[6px] h-[6px] rounded-full animate-pulse" style="background:#60a5fa; box-shadow:0 0 8px #60a5fa;"></div>
-            <span class="text-[11px] font-bold uppercase tracking-[3px]" style="color:rgba(255,255,255,0.4);">TLI Tracker</span>
+            <span class="text-[11px] font-bold uppercase tracking-[3px]" style="color:rgba(255,255,255,0.4);">Deanfinite</span>
           </div>
 
           <div class="text-[13px] font-semibold" style="color:rgba(255,255,255,0.7);">{{ loadingText }}</div>
@@ -87,8 +87,6 @@
         @open-history="isHistoryOpen = true; isBuilderOpen = false"
       />
 
-      <template v-if="!isLoading">
-
         <ControlPanel />
 
         <MapTimer />
@@ -131,7 +129,6 @@
 
         <ItemsHistory :isOpen="isHistoryOpen" @close="isHistoryOpen = false" />
 
-      </template>
     </template>
 
     <SettingsModal
@@ -155,8 +152,6 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { useTrackerStore } from './stores/trackerStore';
 import { useThemeStore } from './stores/themeStore';
-import { initAssets } from './utils/assets';
-import { checkAndDownloadAssets } from './utils/assetUpdater';
 import { updateCursor } from './utils/cursor';
 
 import BuilderPanel         from './components/BuilderPanel.vue';
@@ -183,20 +178,12 @@ const settingsOpenedFromBuilder = ref(false);
 const showDebug       = ref(false);
 
 const isLoading       = ref(true);
-const loadingText     = ref('Connecting...');
+const loadingText     = ref('Waiting for game log…');
 const loadingLines    = ref(0);
 
-const isAssetsReady   = ref(false);
-const isBackendReady  = ref(false);
-
-function checkReadiness() {
-  if (isAssetsReady.value && isBackendReady.value) {
-    loadingText.value = 'Ready!';
-    setTimeout(() => {
-      isLoading.value = false;
-      triggerGlow('white');
-    }, 600);
-  }
+function finishLoading() {
+  isLoading.value = false;
+  triggerGlow('white');
 }
 
 const screenGlow      = ref<'white' | 'green' | null>(null);
@@ -283,14 +270,11 @@ onMounted(async () => {
         break;
       case 'LoadingStart':
         isLoading.value   = true;
-        if (!loadingText.value.includes('Downloading') && !loadingText.value.includes('Extract')) {
-          loadingText.value = 'Initializing...';
-        }
+        loadingText.value = 'Initializing game log…';
         loadingLines.value = e.total_lines ?? 0;
         break;
       case 'LoadingDone':
-        isBackendReady.value = true;
-        checkReadiness();
+        finishLoading();
         break;
       case 'InventoryRefreshed':
         if (e.items && e.items.length > 0) {
@@ -304,14 +288,6 @@ onMounted(async () => {
         break;
     }
   });
-
-  await checkAndDownloadAssets((text) => {
-    loadingText.value = text;
-  });
-  await initAssets();
-
-  isAssetsReady.value = true;
-  checkReadiness();
 
   store.loadConfigFromStorage();
   themeStore.loadFromStorage();

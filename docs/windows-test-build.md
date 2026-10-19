@@ -14,28 +14,30 @@ main и для предыдущей identity успешно прошёл Windows
   release/signing secrets, push или GitHub Release.
 - После сборки выполняются четыре unit-теста `settings::tests` в release-профиле:
   сохранение/перезагрузка, чистая конфигурация, невалидный JSON и ошибка записи.
+- Перед сборкой `npm run test:assets` проверяет offline UI, ошибки графики, restart
+  и widgetOnly в уже установленном Chrome. Native Windows GUI не запускается.
 - EXE теперь **Deanfinite.exe**, installer prefix **Deanfinite**. CI проверяет
   регистр через `-cne`/`-cnotlike`; старое имя EXE не ищется.
 - Artifact `deanfinite-windows-x64-<run_id>-<run_attempt>` хранится 14 дней.
 - SHA256SUMS, BUILD_INFO, LICENSE и инструкции сохраняются. CLI Tauri приходит
   из npm lock; bundler получает свои WiX/NSIS tools. Графический assets.zip не
-  включается, приложение в CI не запускается (выполняются только settings tests).
+  включается, приложение в CI не запускается (выполняются settings tests и Chromium smoke с Tauri mocks).
 
 ## Запуск
 
-PR из `feature/deanfinite-branding` в main **нашего форка** запускает проверку.
+PR из `feature/deanfinite-local-assets` в main **нашего форка** запускает проверку.
 Существующий workflow уже есть в default branch, поэтому ручной запуск также
 можно сделать с feature-ветки:
 
 1. Actions → **Windows test build** (после обновления default branch название
    будет **Deanfinite Windows test build**) → Run workflow.
-2. В `Use workflow from` выбрать **feature/deanfinite-branding**.
+2. В `Use workflow from` выбрать **feature/deanfinite-local-assets**.
 3. Запустить и дождаться результата именно нового commit/run.
 
 Через авторизованный GitHub CLI:
 
 ```shell
-gh workflow run windows-test-build.yml --repo deanwell15/sattatracker-TLI --ref feature/deanfinite-branding
+gh workflow run windows-test-build.yml --repo deanwell15/sattatracker-TLI --ref feature/deanfinite-local-assets
 ```
 
 Для PR checkout обычно соответствует merge commit; его точный SHA записан в
@@ -53,6 +55,7 @@ deanfinite-windows-x64-<run_id>-<run_attempt>.zip
 ├── BUILD_INFO.json
 ├── SHA256SUMS.txt
 ├── RUNNING.txt
+├── ASSET_LICENSES.md
 └── LICENSE
 ```
 
@@ -73,7 +76,7 @@ runner image и хеши lock-файлов. Если любой установщ
 
 Standalone — запуск без установки, не полностью portable/offline-пакет:
 нужен Microsoft Edge WebView2 Runtime, сохраняется requireAdministrator, данные
-пишутся в отдельные Deanfinite AppConfig/LocalAppData, цены/ресурсы пока сетевые.
+пишутся в отдельные Deanfinite AppConfig/LocalAppData, цены пока сетевые; графика встроена и работает offline.
 Не запускать две Deanfinite-копии параллельно и не ставить MSI/NSIS одного продукта
 рядом друг с другом. Совместимость с первоначальной установкой и тест удаления:
 [deanfinite-branding.md](deanfinite-branding.md).

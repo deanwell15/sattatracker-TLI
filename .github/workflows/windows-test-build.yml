@@ -43,6 +43,10 @@ jobs:
       - name: Typecheck frontend
         run: node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
 
+      # Uses Chrome already installed on windows-2022. No browser download.
+      - name: Test offline graphics and widget rendering
+        run: npm run test:assets
+
       # MSVC, Windows SDK and rustup are provided by the Microsoft-hosted image.
       # Fail explicitly if the image stops providing the required C++ tools.
       - name: Verify Windows build prerequisites
@@ -101,6 +105,7 @@ jobs:
           if ((Get-Item -LiteralPath $application).Name -cne 'Deanfinite.exe') { throw 'Incorrect EXE filename casing.' }
           Copy-Item -LiteralPath $application -Destination $standaloneRoot
           Copy-Item -LiteralPath 'LICENSE' -Destination $outputRoot
+          Copy-Item -LiteralPath 'ASSET_LICENSES.md' -Destination $outputRoot
 
           @'
           This is an unsigned test build of Deanfinite (deanwell15/sattatracker-TLI).
@@ -109,7 +114,8 @@ jobs:
           The standalone EXE requires a separately installed Microsoft Edge WebView2 Runtime.
           It is NOT a fully portable/offline package: the existing app still requests
           administrator privileges, stores config.json in its own AppConfig directory, uses LocalAppData
-          and WebView storage, and accesses the original price/assets/font services.
+          and WebView storage. The original price service is still used.
+          Graphics are bundled original placeholders; no remote graphics/fonts are loaded.
           No third-party assets.zip contents have been redistributed in this artifact.
           Deanfinite uses io.github.deanwell15.deanfinite and separate app data.
           No SattaTracker settings are imported. Do not run two Deanfinite copies together.

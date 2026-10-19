@@ -1,26 +1,13 @@
-import { invoke } from '@tauri-apps/api/core';
-import { convertFileSrc } from '@tauri-apps/api/core';
-import { ref } from 'vue';
+import itemPlaceholder from '../assets/local/item.svg?url&no-inline';
+import coinPlaceholder from '../assets/local/coin.svg?url&no-inline';
+import effectPlaceholder from '../assets/local/effect.svg?url&no-inline';
 
-export const assetsState = ref({
-    basePath: '',
-});
-
-export async function initAssets() {
-    try {
-        const path: string = await invoke('get_assets_path');
-        assetsState.value.basePath = path;
-    } catch (e) {
-        console.error('Failed to get assets path', e);
-    }
+// Stable call interfaces; no disk lookup, IPC, cache, ZIP or network provider.
+// IDs are deliberately not interpreted: names and values remain separate data.
+export function getIcon(_id: string | number): string {
+  return itemPlaceholder;
 }
 
-export function getIcon(id: string | number) {
-    if (!assetsState.value.basePath) return '';
-    return convertFileSrc(`${assetsState.value.basePath}\\icons\\${id}.png`);
-}
-
-export function getAnim(subpath: string) {
-    if (!assetsState.value.basePath) return '';
-    return convertFileSrc(`${assetsState.value.basePath}\\piganim\\${subpath}.png`);
+export function getAnim(subpath: string): string {
+  return subpath.startsWith('coin/') ? coinPlaceholder : effectPlaceholder;
 }

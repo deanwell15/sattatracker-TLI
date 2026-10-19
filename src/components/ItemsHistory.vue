@@ -126,9 +126,8 @@
                   class="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center overflow-hidden"
                   style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);"
                 >
-                  <img
+                  <AssetImage
                     :src="getIcon(item.item_id)"
-                    @error="($event.target as HTMLImageElement).style.display='none'"
                     class="w-7 h-7 object-contain"
                   />
                 </div>
@@ -168,9 +167,8 @@
                   class="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center overflow-hidden"
                   style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);"
                 >
-                  <img
+                  <AssetImage
                     :src="getIcon(item.item_id)"
-                    @error="($event.target as HTMLImageElement).style.display='none'"
                     class="w-7 h-7 object-contain"
                   />
                 </div>
@@ -210,9 +208,8 @@
                   class="w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden"
                   style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);"
                 >
-                  <img
+                  <AssetImage
                     :src="getIcon(item.item_id)"
-                    @error="($event.target as HTMLImageElement).style.display='none'"
                     class="w-8 h-8 object-contain"
                   />
                 </div>
@@ -269,6 +266,7 @@
 </template>
 
 <script setup lang="ts">
+import AssetImage from './AssetImage.vue';
 import { ref, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useTrackerStore, type LootItem } from '../stores/trackerStore';
