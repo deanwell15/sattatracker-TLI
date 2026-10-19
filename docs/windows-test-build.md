@@ -88,5 +88,5 @@ Standalone — комплект EXE + icons/, а не самодостаточн
 через PR или workflow_dispatch. Merge и Release в этой задаче не выполняются.
 
 Проверка содержимого установщиков: tools/verify-windows-bundles.ps1 сверяет hashes
-иконок в release folder, MSI CAB и NSIS, а также совпадение EXE. Иконки standalone
+иконок в release folder, MSI CAB и NSIS, а также совпадение EXE за исключением точного служебного marker Tauri MSI/NSS. Иконки standalone
 копируются вместе с EXE и сверяются отдельно. См. [графику](local-assets.md).

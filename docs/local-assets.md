@@ -115,7 +115,9 @@ WebView2, существующие elevated права и AppConfig/LocalAppData
 самого WebView2 и свежие цены — отдельные вопросы.
 
 CI проверяет hashes всех resource-копий, распаковывает MSI CAB и NSIS через
-предустановленный 7-Zip, сверяет все 2 845 иконок и EXE с исходным release.
+предустановленный 7-Zip, сверяет все 2 845 иконок с исходным release. Для EXE допускается только точная
+служебная замена первого bundle-type marker Tauri UNK → MSI/NSS; все остальные
+байты, включая анимации, должны совпадать.
 Сам установщик при проверке содержимого не запускается. Standalone kit также
 проверяется по hashes. ORIGINAL_ASSETS.json, ASSET_LICENSES.md и SHA256SUMS
 добавлены в artifact. Автоматических GitHub Release нет.
@@ -167,3 +169,7 @@ metadata не читаются и не удаляются.
    до/после запуска должны остаться неизменны.
 8. Проверить отсутствующие SS14 ID: понятный аварийный fallback, текст/числа целы.
    Не объявлять отсутствующие оригиналы восстановленными.
+
+Причина различия EXE подтверждена исходниками Tauri CLI 2.10.1:
+[bundle.rs::patch_binary](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.10.1/crates/tauri-bundler/src/bundle.rs#L22).
+Проверка marker и отказ при изменении другого байта покрыты Node unit tests.

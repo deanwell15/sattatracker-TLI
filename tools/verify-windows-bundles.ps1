@@ -71,15 +71,16 @@ try {
         if ($matches.Count -ne 1) { throw "NSIS payload missing/duplicate icon: $name" }
         Assert-IconHash $matches[0].FullName $entry
     }
-    $exeEntry = @{ path = 'Deanfinite.exe'; sha256 = (Get-FileHash -LiteralPath (Join-Path $ReleaseRoot 'Deanfinite.exe') -Algorithm SHA256).Hash.ToLowerInvariant() }
     $msiExeId = $records['Deanfinite.exe'].Id
     $msiExe = @($payloadByName[$msiExeId])
     if (!$msiExe[0]) { $msiExe = @($payloadByName['Deanfinite.exe']) }
     if ($msiExe.Count -ne 1) { throw 'MSI application payload missing/ambiguous' }
-    Assert-IconHash $msiExe[0].FullName $exeEntry
     $nsisExe = @($nsisFiles | Where-Object { $_.Name -ceq 'Deanfinite.exe' })
     if ($nsisExe.Count -ne 1) { throw 'NSIS application payload missing/ambiguous' }
-    Assert-IconHash $nsisExe[0].FullName $exeEntry
+    # Tauri intentionally patches the bundle-type marker in each installer EXE.
+    # Verify the exact expected patch and equality of all remaining bytes.
+    node tools/verify-packaged-exe.mjs (Join-Path $ReleaseRoot 'Deanfinite.exe') $msiExe[0].FullName $nsisExe[0].FullName
+    if ($LASTEXITCODE -ne 0) { throw 'Packaged executable verification failed.' }
     Write-Output "Verified original bytes of all $($icons.Count) icons in release resources, MSI CAB and NSIS payload. Animations are embedded in Deanfinite.exe frontend."
 } finally {
     # Only this invocation's own extraction directory is removed.
