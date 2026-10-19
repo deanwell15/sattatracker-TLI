@@ -95,15 +95,22 @@ try {
   let id = 0;
   const pending = new Map();
   const external = [];
+  const interceptions = new Set();
   socket.addEventListener('message', event => {
     const msg = JSON.parse(event.data);
     if (msg.method === 'Fetch.requestPaused') {
       const allowed = msg.params.request.url.startsWith(`${origin}/`);
       if (!allowed) external.push(msg.params.request.url);
-      void cdp(allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest', {
+      const task = cdp(allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest', {
         requestId: msg.params.requestId,
         ...(!allowed ? { errorReason: 'InternetDisconnected' } : {}),
-      }, msg.sessionId).catch(error => external.push(String(error)));
+      }, msg.sessionId).catch(error => {
+        // Animation src changes may cancel a local image before CDP resumes it.
+        // This precise Chrome response is benign only for an allowed local URL.
+        if (allowed && error.message.includes('"code":-32602') && error.message.includes('Invalid InterceptionId')) return;
+        external.push(String(error));
+      }).finally(() => interceptions.delete(task));
+      interceptions.add(task);
       return;
     }
     if (!msg.id) return;
@@ -143,6 +150,9 @@ try {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.equal(result, `PASS ${scenario}`, result || `Timeout: ${scenario}`);
+    // Stop interception and drain replies before destroying this page/session.
+    await cdp('Fetch.disable', {}, sessionId);
+    await Promise.all([...interceptions]);
     assert.deepEqual(external, [], 'Unexpected external requests');
     console.log(result);
     await cdp('Target.closeTarget', { targetId: target.targetId });
