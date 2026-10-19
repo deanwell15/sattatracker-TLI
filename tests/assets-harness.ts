@@ -1,8 +1,9 @@
 import { createApp, h, nextTick, ref } from 'vue';
 import { createPinia } from 'pinia';
-import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import { mockIPC, mockWindows, mockConvertFileSrc } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
 import AssetImage from '../src/components/AssetImage.vue';
+import PiggyWidget from '../src/components/PiggyWidget.vue';
 import { getIcon, getAnim } from '../src/utils/assets';
 import { useTrackerStore } from '../src/stores/trackerStore';
 import '../src/style.css';
@@ -14,6 +15,12 @@ window.addEventListener('error', e => { if (e.message) errors.push(e.message); }
 window.addEventListener('unhandledrejection', e => errors.push(String(e.reason)));
 window.addEventListener('securitypolicyviolation', e => errors.push(`External resource blocked: ${e.blockedURI}`));
 mockWindows(scenario === 'widget' ? 'widget_lootFeedSession' : 'main');
+mockConvertFileSrc('windows');
+const internals = (window as unknown as { __TAURI_INTERNALS__: { convertFileSrc: (file: string, protocol: string) => string } }).__TAURI_INTERNALS__;
+internals.convertFileSrc = (file, protocol) => {
+  if (protocol !== 'deanfinite-icon' || !/^(?:[0-9]{1,12}|fe)\.png$/.test(file)) throw new Error('Unsafe icon protocol request');
+  return `${location.origin}/__icons/${file}`;
+};
 mockIPC(cmd => {
   commands.push(cmd);
   if (cmd === 'get_cursor_position') return [0, 0];
@@ -58,11 +65,13 @@ try {
     h(AssetImage, { src: getAnim('coin/coin_121'), alt: 'coin' }),
     h(AssetImage, { src: getAnim('pig_119'), alt: 'effect' }),
     h(AssetImage, { src: getIcon('../../unknown-id'), alt: 'unknown item' }),
+    h(AssetImage, { src: getIcon('100300'), alt: 'FE icon' }),
+    h(AssetImage, { src: getIcon('100200'), alt: 'other icon' }),
   ]) });
   probes.mount('#probes');
   const terminal = scenario === 'missing' || scenario === 'corrupt';
   await eventually(() => terminal
-    ? document.querySelectorAll('[data-asset-fallback]').length >= 4
+    ? document.querySelectorAll('[data-asset-fallback]').length >= 6
     : [...document.querySelectorAll<HTMLImageElement>('#probes img')].every(img => img.complete && img.naturalWidth > 0),
   'Missing image fallback failed');
   if (terminal) {
@@ -73,7 +82,30 @@ try {
     await eventually(() => !!document.querySelector<HTMLImageElement>('#probes img[alt="probe"]')?.src.includes('/item.svg'), 'Corrupt image fallback failed');
     probe.value = getAnim('coin/coin_0');
     await nextTick();
-    await eventually(() => !!document.querySelector<HTMLImageElement>('#probes img[alt="probe"]')?.src.includes('/coin.svg'), 'Image source did not recover');
+    await eventually(() => !!document.querySelector<HTMLImageElement>('#probes img[alt="probe"]')?.src.includes('/coin_0.png'), 'Image source did not recover');
+  }
+  if (!terminal) {
+    assert(getIcon('100300') !== getIcon('100200'), 'Individual icon mapping lost');
+    assert(getIcon('../100300') === getIcon('unknown-item'), 'Invalid ID did not fall back');
+    for (const [prefix, count] of [['pig_', 120], ['coin/coin_', 122]] as const) {
+      const urls = Array.from({length:count}, (_,i)=>getAnim(`${prefix}${i}`));
+      assert(new Set(urls).size === count, 'Animation frames collapsed to one image');
+      for (let i=0; i<count; i++) assert(urls[i].includes(`${prefix.split('/').pop()}${i}.png`), 'Frame order mismatch');
+    }
+    const animation = document.createElement('div');
+    animation.style.cssText = 'width:240px;height:180px';
+    document.body.append(animation);
+    const animatedApp = createApp(PiggyWidget).use(pinia);
+    animatedApp.mount(animation);
+    await eventually(() => !!animation.querySelector<HTMLImageElement>('img')?.complete, 'Pig frame did not decode');
+    const initial = animation.querySelector('img')!.getAttribute('src');
+    await eventually(() => animation.querySelector('img')?.getAttribute('src') !== initial, 'Pig animation did not advance');
+    animation.firstElementChild!.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+    await eventually(() => !!animation.querySelector('img')?.getAttribute('src')?.includes('/coin_'), 'Click did not trigger original coin frames');
+    const coin = animation.querySelector('img')!.getAttribute('src');
+    await eventually(() => animation.querySelector('img')?.getAttribute('src') !== coin, 'Coin sequence did not advance');
+    animatedApp.unmount();
+    animation.remove();
   }
   await delay(100);
   assert(!commands.some(cmd => /check_assets_update|download_assets|get_assets_path/.test(cmd)), 'Legacy asset IPC invoked');

@@ -1,192 +1,169 @@
-# Deanfinite: независимые графические ресурсы
+# Deanfinite: оригинальная графика без загрузки при запуске
 
-База изменения: main `aaf5ddb56dc586c3087fce1bacae59f553c37bcf`.
-Графика встроена во frontend. Product Deanfinite, identifier
-`io.github.deanwell15.deanfinite`, пути настроек и цен не меняются.
+PR #3, ветка `feature/deanfinite-local-assets`. Графическая задача не меняет
+PricingManager, parser, FSM, BagManager, расчёты, налог, настройки, Deanfinite
+или identifier `io.github.deanwell15.deanfinite`.
 
-## Инвентаризация до изменения
+## Источник и состав
 
-| Группа | Где использовалась | Обязательность и происхождение |
-|---|---|---|
-| `public_assets/icons/<item_id>.png` | `LootFeed.vue` (1 место), `ItemsHistory.vue` (3), `ExtraEffectsOverlay.vue` (2) через `getIcon` | Для узнаваемости предмета; данные и расчёты от картинки не зависят. В репозитории набора нет. Условия внешнего архива неизвестны; возможны игровые ресурсы. |
-| `public_assets/piganim/pig_0.png` … `pig_119.png` | `PiggyWidget.vue`: 4 уровня × 30 кадров, 30 FPS | Декоративная свинка, не условие расчёта. Тот же неподтверждённый архив. |
-| `public_assets/piganim/coin/coin_0.png` … `coin_121.png` | `PiggyWidget.vue`, частицы `ExtraEffectsOverlay.vue` | 122 декоративных кадра. Тот же неподтверждённый архив. |
-| Прежние PNG/ICO/ICNS в `src-tauri/icons/` | Конфигурация bundle, tray в `lib.rs`, favicon `public/app-icon.png` | Нужны build/tray; наследованные Tauri-подобные изображения заменены собственными. Неподключённые Square/Store удалены. |
-| Vite/Vue SVG | `public/vite.svg`, `src/assets/vue.svg` | Не использовались, удалены. |
-| Inter | Google CSS из `index.html`, Nord preset `themeStore.ts` | Декоративный шрифт; заменён системным стеком. Шрифт не копировался. |
-| Material Symbols Rounded | Google CSS из `index.html`; единственный span `DraggableWidget.vue`, open_in_new/close_fullscreen | Кнопка окна заменена встроенным SVG, без icon font. |
-| Остальные значки и эффекты | Unicode/emoji, CSS, inline SVG в компонентах | Локальная отрисовка/системные шрифты; внешние графические файлы не требуются. |
+Архив https://github.com/sattatrapy/sattatrackerUpdate/releases/download/Assets/assets.zip
+получен 19.10.2026: 189 021 488 байт. SHA-256 совпал с digest GitHub Release:
+`83e55bb0e7d193e43a66fa2304f5eff867360fc10b51ee29b45d74ac708669ab`.
+Проверены CRC всех записей, пути, отсутствие symlink/дубликатов/шифрования,
+ограничения размера и полное декодирование каждого изображения Pillow.
+Никакие файлы из архива не выполнялись.
 
-Прежняя цепочка: App → assetUpdater → check_assets_update (GitHub release
-metadata) → download_assets (ZIP) → public_assets + assets_version.json →
-get_assets_path → convertFileSrc → изображение. App скрывал основные виджеты
-до готовности ресурсов **и** одноразового LoadingDone от backend.
-Даже декоративные файлы фактически блокировали показ базового UI.
+| Набор | Количество | Байты | Упаковка |
+|---|---:|---:|---|
+| Иконки | 2 845 (2 844 числовых ID + fe) | 60 558 114 | Tauri bundle resource `icons/` |
+| Свинка | 121, из них используются 120 | 91 909 865 | Vite frontend, встроен в EXE |
+| Монеты | 122 | 37 528 797 | Vite frontend, встроен в EXE |
+| Всего | 3 088 | 189 996 776 | Смешанная схема |
 
-Archive не скачивался для проверки; происхождение отдельных его файлов нельзя
-достоверно разделить на авторские и игровые. MIT исходников этого не разрешает.
-Решения по лицензиям перечислены в [ASSET_LICENSES.md](../ASSET_LICENSES.md).
+Все файлы сохранены без перекодирования. Расширение .png не всегда отражает
+содержимое: 1 652 файла WebP, 1 436 PNG. PNG-анимации 1664×1244; индивидуальные
+параметры находятся в [manifest](../assets/original-assets.manifest.json).
+В архиве есть запасной pig_120.png: он сохранён, но цикл по-прежнему использует
+ровно pig_0…119. Для каждого из четырёх tier все 30 кадров различаются по
+декодированным пикселям; все 122 coin frames также различаются.
 
-## Новая архитектура
+Иконки используются LootFeed, ItemsHistory и ExtraEffectsOverlay. Анимации —
+PiggyWidget и coinParticles ExtraEffectsOverlay. Исходные FPS=30 в PiggyWidget,
+комбо, уровни, bounce, idle fade, timeout, клик и физика дополнительных эффектов
+сохранены без изменения их скриптов.
 
-`src/utils/assets.ts` сохраняет синхронные интерфейсы `getIcon(id)` и
-`getAnim(path)`. Любой ID возвращает item.svg; coin/* — coin.svg, остальные
-кадры — effect.svg. ID не интерпретируется как путь. Это **нейтральные заглушки**:
-индивидуальной предметной графики и исходных покадровых анимаций больше нет.
-Циклы времени/движения эффектов сохранены, но кадры показывают один эмблемный
-рисунок. Новые собственные анимации можно добавить позже без изменения расчётов.
+Лицензии/атрибуция: [ASSET_LICENSES.md](../ASSET_LICENSES.md). LICENSE/NOTICE в
+архиве нет; конкретного запрета в проверенных материалах не найдено. Права на
+чужой art не присваиваются и MIT исходников на него автоматически не расширяется.
 
-Vite `?url&no-inline` включает SVG в собранный frontend с хешированными именами.
-Tauri обслуживает их своим внутренним frontend protocol, как JS/CSS. Файловые
-пути AppData, ZIP, metadata, IPC и удалённые fallback не используются.
-Каждое окно получает тот же bundled набор независимо от main.
+## Размер Git
 
-`AssetImage.vue`: ошибочный src → локальный item.svg → CSS-символ ◇, если и
-fallback повреждён. Повторных попыток после terminal fallback нет. Смена src
-сбрасывает ошибку. Атрибуты, размеры и стили переходят на корневой элемент.
-Названия, количество, цены и ID поступают прежним путём и не заменяются картинкой.
+Около 181,2 MiB исходных изображений добавляется обычными Git blobs. Крупнейшие
+отдельные файлы меньше 4 MiB, ограничение GitHub 100 MiB/file не затрагивается.
+LFS, перекодирование и оптимизация хранения не внедрялись. Первый clone/checkout
+и CI artifact заметно вырастут; дальнейшие изменения кадров добавят новые blobs
+в историю. При необходимости LFS/оптимизацию согласовать отдельно. Сам ZIP в Git
+не добавлен: хранится распакованный проверяемый набор.
 
-App сразу отображает виджеты. LoadingStart/Done управляют только сообщением о
-чтении игрового лога; сообщение не перехватывает мышь. Без лога оно может
-оставаться видимым, но не скрывает UI. Таймеры и загрузка настроек не ждут графику.
+## getIcon / getAnim и безопасность
 
-Удалены assets.rs, assetUpdater.ts и три asset-команды. Убраны zip-extract и
-неиспользуемые транзитивные зависимости, без обновления оставшихся версий.
-`assetProtocol.enable=false`, `scope=[]`; Cargo feature protocol-asset убрана.
-Доступ к произвольным файлам через этот протокол не нужен. Новых capabilities
-или сетевых разрешений нет; production CSP пока прежняя (`null`).
-Пользовательские старые public_assets/metadata/ZIP остаются на диске нетронутыми.
+`getIcon(id)` синхронно проверяет ID в `src/assets/original-icons.json` и
+возвращает URL собственного `deanfinite-icon` protocol с ревизией источника.
+Tauri на Windows формирует `http://deanfinite-icon.localhost/...` — это локальный
+WebView protocol, не сетевой сервер и не внешний HTTP-запрос. Зарегистрирован
+для всех WebView, поэтому отдельные окна имеют тот же доступ.
+
+Обработчик разрешает только `/[0-9]{1,12}.png` и `/fe.png` внутри
+`resource_dir()/icons`. Traversal, encoded separators, дисковые пути, symlinks,
+каталоги и oversized файлы отклоняются. Ответ использует MIME по фактическим
+байтам и nosniff. Файловый assetProtocol по-прежнему выключен, scope пуст;
+произвольные пользовательские каталоги не открываются.
+
+`getAnim(path)` сопоставляет старые pig_N / coin/coin_N с eager Vite imports,
+исходные PNG публикуются Vite с хешированными именами и встраиваются Tauri в EXE.
+В компонентах не меняются порядок кадров или реакция на игровые события.
+
+Неизвестный ID/кадр → item.svg; ошибка чтения/декодирования → AssetImage с
+локальным fallback, затем CSS ◇, если и fallback повреждён. Это аварийный путь.
+Для имеющихся ресурсов отображаются оригинальные предметные изображения и кадры.
+Никаких metadata/ZIP/updater/авторских Release-запросов в runtime нет. UI не ждёт
+графику или LoadingDone; состояние чтения лога остаётся неблокирующим.
+
+## Покрытие и SS14
+
+В нашем существующем en_id_table.json 2 594 ID; архив покрывает 2 527, отсутствует
+67. Это не основание менять names/классификацию в графическом PR.
+Сравнение с уже исследованным TITrack seed commit 7798e02 (SS14 update включает
+также SS13 backfill) показывает 25 отсутствующих ID из 256 добавленных:
+
+```text
+10330 10331 10332 112358 112444 113287 113288
+396010 396011 396012 396013
+396500 396501 396502 396510 396511 396512
+396520 396521 396522 396530 396531 396532
+502000 502001
+```
+
+Полные ID-списки: [original-assets-coverage.json](original-assets-coverage.json).
+Это сравнение наличия файлов, не доказательство правильности всех сезонных
+соответствий: игра переиспользует ID. Полноценный ItemCatalog и изменение
+классификации сейчас не внедряются. Часть SS14 изображений остаётся отсутствующей;
+их нельзя выдавать за восстановленные или тайно заменять выдуманной картинкой.
+
+`tools/plan-tlidb-icon-update.py` принимает локальный справочный JSON и создаёт
+план недостающих CDN mappings без сетевых запросов/копирования чужого seed в
+runtime. Для следующего обновления нужны подтверждённые условия TLIDB и отдельная
+проверка season=1601/mapping/прав. Пока автоматическое получение выключено.
+
+## Сборка, установщики и standalone
+
+Tauri map `resources/icons/*.png → icons/` включает все иконки в MSI/NSIS и
+копирует их рядом с release EXE. Анимации встроены во frontend/EXE. Standalone
+artifact **обязательно** содержит комплект:
+
+```text
+standalone/
+  Deanfinite.exe
+  icons/
+    100300.png
+    ...
+```
+
+Не копировать один EXE без icons. Полностью автономный единый EXE не заявляется.
+WebView2, существующие elevated права и AppConfig/LocalAppData также требуются;
+прежний ценовой API остаётся. Для offline-графики не нужен download, но установка
+самого WebView2 и свежие цены — отдельные вопросы.
+
+CI проверяет hashes всех resource-копий, распаковывает MSI CAB и NSIS через
+предустановленный 7-Zip, сверяет все 2 845 иконок и EXE с исходным release.
+Сам установщик при проверке содержимого не запускается. Standalone kit также
+проверяется по hashes. ORIGINAL_ASSETS.json, ASSET_LICENSES.md и SHA256SUMS
+добавлены в artifact. Автоматических GitHub Release нет.
 
 ## Автоматические проверки
 
+- `npm run test:assets`: исходные hashes/реальные MIME всех 3 088 файлов;
+  registry, наличие кадров и различие decoded hashes для 4×30 + 122;
+  6 Chromium-сценариев: clean, restart, offline boundary, missing, corrupt,
+  widgetOnly. Реальный Vue/Pinia с Tauri mocks; проверяются оригинальные URL,
+  разные иконки, полный порядок frame mapping, продвижение кадров PiggyWidget
+  и coin sequence после клика; корректные текст/количество/сумма остаются.
+- `npm run build`: vue-tsc/Vite и `check-frontend-assets.mjs` — побайтное наличие
+  всех 243 оригинальных файлов анимаций в production frontend.
+- Rust `icon_resource::tests`: допустимые MIME/байты; traversal/encoded/drive/
+  oversized/invalid file; Unix symlink fixtures, когда платформа их поддерживает.
+- Windows CI: settings и icon_resource tests, MSI/NSIS и standalone contents.
+- Исходный архив при импорте: SHA-256/CRC, строгие пути и limits, полное
+  декодирование, pixel hashes. Developer-only importer воспроизводим:
+
 ```shell
-npm ci
-npm run test:assets
-npm run build
+python tools/import-original-assets.py --archive path/to/assets.zip
+# Для разработчика, если ZIP ещё не скачан (не приложение и не CI):
+python tools/import-original-assets.py --download --archive path/to/assets.zip
 ```
 
-Нужен уже установленный Chrome/Chromium; нестандартный путь задаётся CHROME_BIN.
-Загрузка браузеров/исполняемых файлов тестами не выполняется. Node 24 из CI.
-В Windows CI тест запускается перед сборкой MSI/NSIS; используется Chrome runner.
-
-`tests/assets.test.mjs` запускает Vite и настоящий headless Chromium, но
-**Tauri IPC/window API подменены** штатными mocks. Тесты выполняют реальный App,
-Pinia, обработчик LootDrop и компоненты:
-
-1. Чистый browser context без cache/localStorage: виджеты видимы ещё без LoadingDone.
-2. Повторный запуск с тем же origin/storage: frontend settings сохранены.
-3. Offline boundary: все нелокальные HTTP(S) запросы блокируются CDP, CSP тестовой
-   страницы запрещает внешние ресурсы; попытка внешнего запроса проваливает тест.
-4. 404 для bundled SVG: видимый CSS fallback, текст/числа остаются.
-5. Повреждённое SVG с HTTP 200: тот же fallback, без зависания запуска.
-6. `widgetOnly=lootFeedSession`: отдельный frontend/Pinia/context, лут и числа
-   отображаются без main readiness. Нативное создание/возврат окна не эмулируется.
-
-Во всех сценариях проверяются название, x2 и [20.0] для одного fixture-event;
-формулы не исправляются и полный экономический аудит этим не подменяется.
-Также проверены повреждённый отдельный PNG и восстановление при смене src,
-неизвестный ID, отсутствие legacy IPC/URL и закрытый asset protocol.
-Тестовые страницы не входят в production entry/bundle; fault injection только в
-тестовом Vite server. Это проверка UI, а не полной установки Windows.
+Импорт требует Pillow; запуск приложения/CI build его не требует. Никакой
+скачанный executable не выполняется. Старые пользовательские public_assets/ZIP/
+metadata не читаются и не удаляются.
 
 ## Ручная проверка Windows
 
-1. Actions → Deanfinite Windows test build → Run workflow →
-   `feature/deanfinite-local-assets` (или дождаться PR run). Проверить зелёный
-   результат именно нужного commit и BUILD_INFO/SHA256SUMS артефакта.
-2. В тестовой VM/новой Windows-учётной записи с установленным WebView2 запустить
-   один формат (MSI **или** NSIS **или** standalone). Не удалять рабочие данные
-   ради теста. При отсутствии игры UI всё равно должен показать виджеты/settings.
-3. До первого запуска отключить сеть. Welcome, F8, темы, таймеры и таблицы должны
-   работать. Отсутствие свежих цен допустимо; значения без цен могут быть нулевыми.
-   Offline-установка WebView2 и новый источник цен в задачу не входят.
-4. На том же профиле закрыть/повторно открыть из другого CWD: тема/layout сохранены,
-   нет проверки/скачивания ресурсов. Identifier и каталоги прежние Deanfinite.
-5. С игровым логом проверить session/map loot, расходы, инвентарь и окно истории:
-   общая иконка, читаемые названия/количества/значения, нейтральный эффект/монета.
-   Известные дефекты повторного loot/налога не считать исправленными этим PR.
-6. Открепить loot/stat widget, проверить данные при отсутствии сети; закрыть/вернуть
-   окно. Отдельно записать существующие проблемы синхронизации окон, если есть.
-7. Запустить с профилем, где уже есть старые public_assets/assets_version.json/ZIP:
-   заранее записать хеши/время файлов. После запуска они неизменны и не используются.
-   Повторить с пустой папкой ресурсов; вручную удалять рабочие файлы не требуется.
-8. Для fault injection использовать npm run test:assets: 404/битые bundled SVG
-   эмулируются без модификации установленного EXE. Не подменять подписываемый бинарник.
-9. В WebView2 DevTools/сетевой трассировке проверить все окна и эффекты: нет запросов
-   к upstream releases, assets.zip, fonts.googleapis.com/fonts.gstatic.com. Цены
-   могут обращаться к прежнему IP. Не путать фоновый трафик Windows/WebView с app.
-10. Проверить новую D-иконку EXE/tray/установщика. Кэш значков Windows может требовать
-    нового пути тестовой установки; не менять identity ради обновления иконки.
-
-Windows GUI/WebView2/установщики требуют выполнения этих шагов пользователем;
-браузерный smoke-test не доказывает их успех.
-
-## Оставшаяся сеть
-
-- Прежний PricingManager: `http://115.231.176.101:8080/get?season_id=N`, override
-  `TLI_PRICE_API_URL`, локальный prices_cache.json, 10-секундный timeout — без изменений.
-  Принадлежность IP автору не установлена. Независимость **цен** ещё не достигнута.
-- WebView2 bootstrap/runtime/update может обращаться к Microsoft. Standalone
-  требует установленного runtime и не является полностью portable/offline пакетом.
-- GitHub/npm/Cargo, WiX/NSIS tools нужны сборке; schema URL в JSON не runtime fetch.
-- Ссылки на оригинальный проект в README/credits — атрибуция, не автообновление.
-
-Следующая отдельная задача — PriceProvider/локальный import/cache и проверка
-лицензий/контрактов кандидатов источников; TLIDB/TITrack не подтверждены как рынки.
-
-## Изменённые файлы
-
-```text
-.github/workflows/windows-test-build.yml
-README.md
-docs/deanfinite-branding.md
-docs/independence-plan.md
-docs/windows-test-build.md
-index.html
-package.json
-public/app-icon.png
-public/vite.svg
-src-tauri/Cargo.lock
-src-tauri/Cargo.toml
-src-tauri/icons/128x128.png
-src-tauri/icons/128x128@2x.png
-src-tauri/icons/32x32.png
-src-tauri/icons/Square107x107Logo.png
-src-tauri/icons/Square142x142Logo.png
-src-tauri/icons/Square150x150Logo.png
-src-tauri/icons/Square284x284Logo.png
-src-tauri/icons/Square30x30Logo.png
-src-tauri/icons/Square310x310Logo.png
-src-tauri/icons/Square44x44Logo.png
-src-tauri/icons/Square71x71Logo.png
-src-tauri/icons/Square89x89Logo.png
-src-tauri/icons/StoreLogo.png
-src-tauri/icons/icon.icns
-src-tauri/icons/icon.ico
-src-tauri/icons/icon.png
-src-tauri/src/assets.rs
-src-tauri/src/lib.rs
-src-tauri/tauri.conf.json
-src/App.vue
-src/assets/vue.svg
-src/components/DraggableWidget.vue
-src/components/ExtraEffectsOverlay.vue
-src/components/ItemsHistory.vue
-src/components/LootFeed.vue
-src/components/PiggyWidget.vue
-src/stores/themeStore.ts
-src/utils/assetUpdater.ts
-src/utils/assets.ts
-ASSET_LICENSES.md
-docs/local-assets.md
-src/assets/local/app.svg
-src/assets/local/coin.svg
-src/assets/local/effect.svg
-src/assets/local/item.svg
-src/components/AssetImage.vue
-tests/assets-harness.html
-tests/assets-harness.ts
-tests/assets.test.mjs
-tests/tsconfig.json
-tools/generate-app-icons.py
-```
+1. Дождаться зелёного run актуального commit в Actions → Deanfinite Windows test
+   build. Проверить BUILD_INFO/ORIGINAL_ASSETS/SHA256SUMS.
+2. В тестовой VM/новом профиле с WebView2 отключить сеть до первого запуска.
+   Установить один MSI/NSIS либо распаковать **весь** standalone kit.
+3. UI, F8, основные виджеты и графика доступны без cache/download. Отсутствие
+   игры/свежих цен не должно скрывать widgets; не считать неизвестные цены дефектом
+   упаковки графики.
+4. На игровом логе сверить разные знакомые item icons, историю, session/map loot.
+   Сверить свинку всех четырёх tier, bounce/fade/combo timeout и исходную анимацию
+   монет после клика, частицы/дополнительные эффекты. Триггеры не менялись.
+5. Открепить/вернуть окна и повторить проверку offline. Это требует реального
+   WebView2; браузерный mock не доказывает нативную работу окон.
+6. Закрыть/повторно открыть приложение из другого CWD. Standalone icons остаются
+   рядом с EXE. Не переносить user cache ради исправления package.
+7. Сверить отсутствие запросов к авторским Release/assets.zip во всех окнах;
+   прежние price requests отделять от графики. Старые пользовательские файлы
+   до/после запуска должны остаться неизменны.
+8. Проверить отсутствующие SS14 ID: понятный аварийный fallback, текст/числа целы.
+   Не объявлять отсутствующие оригиналы восстановленными.

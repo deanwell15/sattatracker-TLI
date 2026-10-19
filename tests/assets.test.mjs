@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import './asset-integrity.mjs';
 import { once } from 'node:events';
 import { createServer } from 'vite';
 import vue from '@vitejs/plugin-vue';
@@ -25,30 +26,43 @@ for (const root of ['src', 'src-tauri/src']) {
 }
 for (const path of paths) {
   if (!existsSync(path) || !/\.(vue|ts|rs|html)$/.test(path)) continue;
-  assert(!/sattatrapy\/sattatrackerUpdate|assets\.zip|public_assets|assets_version\.json|check_assets_update|download_assets|get_assets_path|fonts\.googleapis|fonts\.gstatic|convertFileSrc/.test(await readFile(path, 'utf8')), `Legacy asset dependency: ${path}`);
+  assert(!/sattatrapy\/sattatrackerUpdate|assets\.zip|public_assets|assets_version\.json|check_assets_update|download_assets|get_assets_path|fonts\.googleapis|fonts\.gstatic/.test(await readFile(path, 'utf8')), `Legacy asset dependency: ${path}`);
 }
 const config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'));
 assert.equal(config.app.security.assetProtocol.enable, false);
 assert.deepEqual(config.app.security.assetProtocol.scope, []);
+assert.deepEqual(config.bundle.resources, { 'resources/icons/*.png': 'icons/' });
 
 const server = await createServer({
   configFile: false,
   plugins: [vue(), tailwindcss(), {
     name: 'asset-fault-injection',
     configureServer(vite) {
-      vite.middlewares.use((req, res, next) => {
-        // Only image bytes, never Vite's ?import JS modules. No production changes.
-        if (/^\/src\/assets\/local\/.*\.svg(?:$|\?)/.test(req.url || '') && !/[?&]import(?:&|$)/.test(req.url || '') && !req.headers.accept?.includes('javascript')) {
-          const mode = /asset-test=(missing|corrupt)/.exec(req.headers.cookie || '')?.[1];
-          if (mode) {
-            res.statusCode = mode === 'missing' ? 404 : 200;
-            res.setHeader('Content-Type', 'image/svg+xml');
+      vite.middlewares.use(async (req, res, next) => {
+        try {
+          const path = new URL(req.url || '/', 'http://127.0.0.1').pathname;
+          const isImage = req.headers['sec-fetch-dest'] === 'image';
+          if (isImage && (path.startsWith('/src/assets/') || path.startsWith('/__icons/'))) {
+            const mode = /asset-test=(missing|corrupt)/.exec(req.headers.cookie || '')?.[1];
+            if (mode) {
+              res.statusCode = mode === 'missing' ? 404 : 200;
+              res.setHeader('Content-Type', 'image/png');
+              res.setHeader('Cache-Control', 'no-store');
+              res.end(mode === 'missing' ? '' : 'not an image');
+              return;
+            }
+          }
+          if (path.startsWith('/__icons/')) {
+            const name = path.slice('/__icons/'.length);
+            if (!/^(?:[0-9]{1,12}|fe)\.png$/.test(name)) { res.statusCode=400; res.end(); return; }
+            const bytes = await readFile(`src-tauri/resources/icons/${name}`);
+            res.setHeader('Content-Type', bytes.toString('ascii',0,4)==='RIFF' ? 'image/webp' : 'image/png');
             res.setHeader('Cache-Control', 'no-store');
-            res.end(mode === 'missing' ? '' : 'this is not an SVG image');
+            res.end(bytes);
             return;
           }
-        }
-        next();
+          next();
+        } catch (error) { next(error); }
       });
     },
   }],
@@ -122,7 +136,7 @@ try {
     await cdp('Fetch.enable', { patterns: [{ urlPattern: 'http://*' }, { urlPattern: 'https://*' }] }, sessionId);
     await cdp('Page.navigate', { url: `${origin}/tests/assets-harness.html?scenario=${scenario}${scenario === 'widget' ? '&widgetOnly=lootFeedSession' : ''}` }, sessionId);
     let result = '';
-    for (let attempt = 0; attempt < 300; attempt++) {
+    for (let attempt = 0; attempt < 900; attempt++) {
       const evaluated = await cdp('Runtime.evaluate', { expression: 'document.querySelector("#result")?.textContent || ""', returnByValue: true }, sessionId);
       result = evaluated.result.value || '';
       if (/^(PASS|FAIL)/.test(result)) break;

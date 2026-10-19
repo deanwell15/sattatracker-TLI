@@ -38,7 +38,7 @@ npm run tauri -- dev
 npm run tauri -- build --ci --target x86_64-pc-windows-msvc --bundles nsis,msi -- --locked
 ```
 
-Ожидаемый EXE — **Deanfinite.exe**. Standalone EXE требует Microsoft Edge WebView2
+Ожидаемый EXE — **Deanfinite.exe**. Standalone комплект (`Deanfinite.exe` **вместе с** `icons/`) требует Microsoft Edge WebView2
 Runtime и пока не является полностью portable/offline-приложением. Release
 по-прежнему использует `requireAdministrator`; этот манифест не изменялся.
 
@@ -54,7 +54,7 @@ Windows-пользователя используются:
 |---|---|
 | Backend flags | `%APPDATA%\io.github.deanwell15.deanfinite\config.json` |
 | Цены | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite\prices_cache.json` |
-| Графика | Встроена в frontend; внешняя папка и кэш ресурсов не требуются |
+| Графика | Анимации встроены в EXE; иконки установлены в `icons/` рядом с EXE |
 | WebView2 / localStorage | Собственный профиль под `%LOCALAPPDATA%\io.github.deanwell15.deanfinite` |
 
 Настройки не читаются рядом с EXE или из текущего рабочего каталога. Каталоги
@@ -69,13 +69,13 @@ WebView2 отделён новым identifier. Ручной импорт буд�
 
 ## Текущие внешние зависимости
 
-Графика теперь независима от upstream: собственные нейтральные SVG встроены
-в приложение, иконка D — собственная, шрифты системные. Индивидуальные игровые
-картинки и исходные кадры свинки/монет заменены заглушками. Названия и значения
-предметов сохранены. Нет загрузки GitHub assets.zip, внешних шрифтов или чтения
-старого public_assets; существующие пользовательские файлы не удаляются.
-[Инвентаризация, архитектура, тесты и Windows checklist](docs/local-assets.md),
-[лицензии графики](ASSET_LICENSES.md).
+Оригинальные item icons, 120 рабочих кадров свинки и 122 кадра монет включены
+в репозиторий и Windows-сборку. Иконки — Tauri resources, анимации — встроенный
+frontend. При запуске графика не скачивается. Общая заглушка используется только
+при отсутствующем или повреждённом изображении; неполное покрытие SS14 перечислено
+в [документации графики](docs/local-assets.md).
+[Происхождение и уведомления](ASSET_LICENSES.md).
+Старые public_assets/metadata/ZIP пользователя не читаются и не удаляются.
 
 Остаются цены `http://115.231.176.101:8080/get?season_id=N`, override
 `TLI_PRICE_API_URL` и прежний формат `{ "<item_id>": { "price": <number> } }`.

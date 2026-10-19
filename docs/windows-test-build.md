@@ -21,7 +21,7 @@ main и для предыдущей identity успешно прошёл Windows
 - Artifact `deanfinite-windows-x64-<run_id>-<run_attempt>` хранится 14 дней.
 - SHA256SUMS, BUILD_INFO, LICENSE и инструкции сохраняются. CLI Tauri приходит
   из npm lock; bundler получает свои WiX/NSIS tools. Графический assets.zip не
-  включается, приложение в CI не запускается (выполняются settings tests и Chromium smoke с Tauri mocks).
+  включается, приложение в CI не запускается (выполняются settings/icon_resource tests и Chromium smoke с Tauri mocks).
 
 ## Запуск
 
@@ -52,6 +52,8 @@ deanfinite-windows-x64-<run_id>-<run_attempt>.zip
 ├── installers/msi/Deanfinite*.msi
 ├── installers/nsis/Deanfinite*.exe
 ├── standalone/Deanfinite.exe
+├── standalone/icons/*.png
+├── ORIGINAL_ASSETS.json
 ├── BUILD_INFO.json
 ├── SHA256SUMS.txt
 ├── RUNNING.txt
@@ -74,7 +76,7 @@ runner image и хеши lock-файлов. Если любой установщ
 
 ## Standalone и установка
 
-Standalone — запуск без установки, не полностью portable/offline-пакет:
+Standalone — комплект EXE + icons/, а не самодостаточный один EXE:
 нужен Microsoft Edge WebView2 Runtime, сохраняется requireAdministrator, данные
 пишутся в отдельные Deanfinite AppConfig/LocalAppData, цены пока сетевые; графика встроена и работает offline.
 Не запускать две Deanfinite-копии параллельно и не ставить MSI/NSIS одного продукта
@@ -84,3 +86,7 @@ Standalone — запуск без установки, не полностью p
 Прежний [release.yml](../.github/workflows/release.yml) не изменён и реагирует на
 теги v*. Для тестовой сборки не создавать такие теги: новый run использовать
 через PR или workflow_dispatch. Merge и Release в этой задаче не выполняются.
+
+Проверка содержимого установщиков: tools/verify-windows-bundles.ps1 сверяет hashes
+иконок в release folder, MSI CAB и NSIS, а также совпадение EXE. Иконки standalone
+копируются вместе с EXE и сверяются отдельно. См. [графику](local-assets.md).

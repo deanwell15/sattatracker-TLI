@@ -74,8 +74,11 @@ jobs:
       - name: Build frontend and Windows installers
         run: npm run tauri -- build --ci --target $env:RUST_TARGET --bundles "nsis,msi" -- --locked
 
-      - name: Test isolated settings persistence
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --release --target $env:RUST_TARGET --lib settings::tests
+      - name: Test settings and bounded icon resource access
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --release --target $env:RUST_TARGET --lib
+
+      - name: Verify original graphics in Windows installer payloads
+        run: ./tools/verify-windows-bundles.ps1 -ReleaseRoot (Join-Path $env:CARGO_TARGET_DIR "$env:RUST_TARGET/release")
 
       - name: Verify dependency lock files were not changed
         run: git diff --exit-code -- package-lock.json src-tauri/Cargo.lock
@@ -104,19 +107,30 @@ jobs:
           if (!(Test-Path -LiteralPath $application)) { throw 'Standalone application EXE is missing.' }
           if ((Get-Item -LiteralPath $application).Name -cne 'Deanfinite.exe') { throw 'Incorrect EXE filename casing.' }
           Copy-Item -LiteralPath $application -Destination $standaloneRoot
+          Copy-Item -LiteralPath (Join-Path $releaseRoot 'icons') -Destination (Join-Path $standaloneRoot 'icons') -Recurse
+          $assetManifest = Get-Content -LiteralPath 'assets/original-assets.manifest.json' -Raw | ConvertFrom-Json
+          foreach ($entry in @($assetManifest.files | Where-Object { $_.path.StartsWith('src-tauri/resources/icons/') })) {
+            $icon = Join-Path $standaloneRoot ('icons/' + [System.IO.Path]::GetFileName($entry.path))
+            if (!(Test-Path -LiteralPath $icon)) { throw "Standalone icon missing: $icon" }
+            if ((Get-FileHash -LiteralPath $icon -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256) {
+              throw "Standalone icon checksum mismatch: $icon"
+            }
+          }
+          Copy-Item -LiteralPath 'assets/original-assets.manifest.json' -Destination (Join-Path $outputRoot 'ORIGINAL_ASSETS.json')
           Copy-Item -LiteralPath 'LICENSE' -Destination $outputRoot
           Copy-Item -LiteralPath 'ASSET_LICENSES.md' -Destination $outputRoot
 
           @'
           This is an unsigned test build of Deanfinite (deanwell15/sattatracker-TLI).
           installers/msi: MSI installer. installers/nsis: NSIS setup EXE.
-          standalone/Deanfinite.exe: experimental installation-free executable.
+          standalone/: installation-free KIT. Keep Deanfinite.exe and icons/ together.
+          Copying only Deanfinite.exe loses item icons; this EXE is NOT self-contained.
           The standalone EXE requires a separately installed Microsoft Edge WebView2 Runtime.
           It is NOT a fully portable/offline package: the existing app still requests
           administrator privileges, stores config.json in its own AppConfig directory, uses LocalAppData
           and WebView storage. The original price service is still used.
-          Graphics are bundled original placeholders; no remote graphics/fonts are loaded.
-          No third-party assets.zip contents have been redistributed in this artifact.
+          Original item icons and animation frames are bundled; no remote graphics/fonts are loaded.
+          See ASSET_LICENSES.md for original resource provenance and rights notices.
           Deanfinite uses io.github.deanwell15.deanfinite and separate app data.
           No SattaTracker settings are imported. Do not run two Deanfinite copies together.
           SHA256SUMS.txt verifies file consistency; it is not a digital signature.
@@ -155,6 +169,10 @@ jobs:
             rust = $rustVersion
             cargo = $cargoVersion
             npmLockSha256 = (Get-FileHash -LiteralPath 'package-lock.json' -Algorithm SHA256).Hash.ToLowerInvariant()
+            originalAssetsSha256 = $assetManifest.archive_sha256
+            originalAssetsFiles = $assetManifest.file_count
+            originalAssetsBytes = $assetManifest.total_bytes
+            standaloneFormat = 'Deanfinite.exe + icons/; WebView2 separately required'
             cargoLockSha256 = (Get-FileHash -LiteralPath 'src-tauri/Cargo.lock' -Algorithm SHA256).Hash.ToLowerInvariant()
           }
           $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $outputRoot 'BUILD_INFO.json') -Encoding utf8
