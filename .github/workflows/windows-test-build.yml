@@ -1,0 +1,162 @@
+name: Windows test build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-test-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    if: github.repository == 'deanwell15/sattatracker-TLI'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.1
+      RUST_TARGET: x86_64-pc-windows-msvc
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Check out the requested revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.19.0
+
+      - name: Install frontend and Tauri CLI from package-lock.json
+        run: npm ci
+
+      - name: Typecheck frontend
+        run: node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+      # MSVC, Windows SDK and rustup are provided by the Microsoft-hosted image.
+      # Fail explicitly if the image stops providing the required C++ tools.
+      - name: Verify Windows build prerequisites
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          if (!(Test-Path -LiteralPath $vswhere)) {
+            throw 'Visual Studio Installer/vswhere.exe is missing from the runner.'
+          }
+          $visualStudio = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!$visualStudio) { throw 'MSVC x64/x86 build tools are missing.' }
+          $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/Include'
+          $sdkVersions = @(Get-ChildItem -LiteralPath $sdkRoot -Directory |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'um/Windows.h') })
+          if ($sdkVersions.Count -eq 0) { throw 'Windows SDK headers are missing.' }
+          Write-Output "Visual Studio: $visualStudio"
+          $sdkVersions | ForEach-Object { Write-Output "Windows SDK: $($_.Name)" }
+
+      - name: Install the pinned Rust toolchain and Windows target
+        run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --target $env:RUST_TARGET
+
+      # tauri.conf.json beforeBuildCommand runs npm run build (vue-tsc + Vite).
+      # Arguments after -- are passed to Cargo, so Cargo.lock is enforced.
+      # Tauri's bundler obtains its WiX/NSIS packaging tools; no app is launched.
+      - name: Build frontend and Windows installers
+        run: npm run tauri -- build --ci --target $env:RUST_TARGET --bundles "nsis,msi" -- --locked
+
+      - name: Verify dependency lock files were not changed
+        run: git diff --exit-code -- package-lock.json src-tauri/Cargo.lock
+
+      - name: Collect installers, standalone EXE and build metadata
+        run: |
+          $releaseRoot = Join-Path $env:CARGO_TARGET_DIR "$env:RUST_TARGET/release"
+          $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+          $standaloneRoot = Join-Path $outputRoot 'standalone'
+          New-Item -ItemType Directory -Path $standaloneRoot -Force | Out-Null
+
+          foreach ($format in @('msi', 'nsis')) {
+            $extension = if ($format -eq 'msi') { '*.msi' } else { '*.exe' }
+            $source = Join-Path $releaseRoot "bundle/$format"
+            $installers = @(Get-ChildItem -LiteralPath $source -Filter $extension -File -Recurse)
+            if ($installers.Count -eq 0) { throw "No $format installer was produced." }
+            $destination = Join-Path $outputRoot "installers/$format"
+            New-Item -ItemType Directory -Path $destination -Force | Out-Null
+            $installers | Copy-Item -Destination $destination
+          }
+
+          $application = Join-Path $releaseRoot 'tli-sattatracker.exe'
+          if (!(Test-Path -LiteralPath $application)) { throw 'Standalone application EXE is missing.' }
+          Copy-Item -LiteralPath $application -Destination $standaloneRoot
+          Copy-Item -LiteralPath 'LICENSE' -Destination $outputRoot
+
+          @'
+          This is an unsigned test build of deanwell15/sattatracker-TLI.
+          installers/msi: MSI installer. installers/nsis: NSIS setup EXE.
+          standalone/tli-sattatracker.exe: experimental installation-free executable.
+          The standalone EXE requires a separately installed Microsoft Edge WebView2 Runtime.
+          It is NOT a fully portable/offline package: the existing app still requests
+          administrator privileges, writes config.json beside the EXE, uses LocalAppData
+          and WebView storage, and accesses the original price/assets/font services.
+          No third-party assets.zip contents have been redistributed in this artifact.
+          Keep this build separate from an existing installation: its application ID
+          and data locations have not been changed. Do not run installers and EXE together.
+          SHA256SUMS.txt verifies file consistency; it is not a digital signature.
+          A successful CI build does not prove the game parser, overlay or accounting work.
+          '@ | Set-Content -LiteralPath (Join-Path $outputRoot 'RUNNING.txt') -Encoding utf8
+
+          $package = Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json
+          $tauri = Get-Content -LiteralPath 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json
+          $commit = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $nodeVersion = node --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $npmVersion = npm --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $rustVersion = rustc --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cargoVersion = cargo --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $metadata = [ordered]@{
+            repository = $env:GITHUB_REPOSITORY
+            commit = $commit
+            ref = $env:GITHUB_REF
+            event = $env:GITHUB_EVENT_NAME
+            runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            version = $package.version
+            productName = $tauri.productName
+            identifier = $tauri.identifier
+            target = $env:RUST_TARGET
+            runnerImage = $env:ImageOS
+            runnerImageVersion = $env:ImageVersion
+            node = $nodeVersion
+            npm = $npmVersion
+            rust = $rustVersion
+            cargo = $cargoVersion
+            npmLockSha256 = (Get-FileHash -LiteralPath 'package-lock.json' -Algorithm SHA256).Hash.ToLowerInvariant()
+            cargoLockSha256 = (Get-FileHash -LiteralPath 'src-tauri/Cargo.lock' -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $outputRoot 'BUILD_INFO.json') -Encoding utf8
+
+          $checksums = @(Get-ChildItem -LiteralPath $outputRoot -File -Recurse |
+            Sort-Object FullName | ForEach-Object {
+              $relativePath = [System.IO.Path]::GetRelativePath($outputRoot, $_.FullName).Replace('\', '/')
+              $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $relativePath"
+            })
+          $checksums | Set-Content -LiteralPath (Join-Path $outputRoot 'SHA256SUMS.txt') -Encoding utf8
+
+      - name: Upload Windows test build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sattatracker-windows-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
