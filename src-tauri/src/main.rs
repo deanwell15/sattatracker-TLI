@@ -2,5 +2,5 @@
 
 #[tokio::main]
 async fn main() {
-    tli_sattatracker_lib::run()
+    deanfinite_lib::run()
 }

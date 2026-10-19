@@ -1,4 +1,4 @@
-name: Windows test build
+name: Deanfinite Windows test build
 
 on:
   workflow_dispatch:
@@ -70,6 +70,9 @@ jobs:
       - name: Build frontend and Windows installers
         run: npm run tauri -- build --ci --target $env:RUST_TARGET --bundles "nsis,msi" -- --locked
 
+      - name: Test isolated settings persistence
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --release --target $env:RUST_TARGET --lib settings::tests
+
       - name: Verify dependency lock files were not changed
         run: git diff --exit-code -- package-lock.json src-tauri/Cargo.lock
 
@@ -85,27 +88,31 @@ jobs:
             $source = Join-Path $releaseRoot "bundle/$format"
             $installers = @(Get-ChildItem -LiteralPath $source -Filter $extension -File -Recurse)
             if ($installers.Count -eq 0) { throw "No $format installer was produced." }
+            if (@($installers | Where-Object { $_.Name -cnotlike 'Deanfinite*' }).Count -gt 0) {
+              throw "Unexpected $format installer product name."
+            }
             $destination = Join-Path $outputRoot "installers/$format"
             New-Item -ItemType Directory -Path $destination -Force | Out-Null
             $installers | Copy-Item -Destination $destination
           }
 
-          $application = Join-Path $releaseRoot 'tli-sattatracker.exe'
+          $application = Join-Path $releaseRoot 'Deanfinite.exe'
           if (!(Test-Path -LiteralPath $application)) { throw 'Standalone application EXE is missing.' }
+          if ((Get-Item -LiteralPath $application).Name -cne 'Deanfinite.exe') { throw 'Incorrect EXE filename casing.' }
           Copy-Item -LiteralPath $application -Destination $standaloneRoot
           Copy-Item -LiteralPath 'LICENSE' -Destination $outputRoot
 
           @'
-          This is an unsigned test build of deanwell15/sattatracker-TLI.
+          This is an unsigned test build of Deanfinite (deanwell15/sattatracker-TLI).
           installers/msi: MSI installer. installers/nsis: NSIS setup EXE.
-          standalone/tli-sattatracker.exe: experimental installation-free executable.
+          standalone/Deanfinite.exe: experimental installation-free executable.
           The standalone EXE requires a separately installed Microsoft Edge WebView2 Runtime.
           It is NOT a fully portable/offline package: the existing app still requests
-          administrator privileges, writes config.json beside the EXE, uses LocalAppData
+          administrator privileges, stores config.json in its own AppConfig directory, uses LocalAppData
           and WebView storage, and accesses the original price/assets/font services.
           No third-party assets.zip contents have been redistributed in this artifact.
-          Keep this build separate from an existing installation: its application ID
-          and data locations have not been changed. Do not run installers and EXE together.
+          Deanfinite uses io.github.deanwell15.deanfinite and separate app data.
+          No SattaTracker settings are imported. Do not run two Deanfinite copies together.
           SHA256SUMS.txt verifies file consistency; it is not a digital signature.
           A successful CI build does not prove the game parser, overlay or accounting work.
           '@ | Set-Content -LiteralPath (Join-Path $outputRoot 'RUNNING.txt') -Encoding utf8
@@ -130,7 +137,9 @@ jobs:
             runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
             runAttempt = $env:GITHUB_RUN_ATTEMPT
             version = $package.version
+            packageName = $package.name
             productName = $tauri.productName
+            mainBinaryName = $tauri.mainBinaryName
             identifier = $tauri.identifier
             target = $env:RUST_TARGET
             runnerImage = $env:ImageOS
@@ -155,7 +164,7 @@ jobs:
       - name: Upload Windows test build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: sattatracker-windows-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          name: deanfinite-windows-x64-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 14

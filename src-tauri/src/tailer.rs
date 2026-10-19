@@ -1,7 +1,7 @@
 use linemux::MuxedLines;
 use std::path::PathBuf;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::watch;
 use tokio::time::{self, Instant as TokioInstant};
@@ -82,16 +82,11 @@ async fn replay_existing_log(
 pub async fn start_tailing(
     app: AppHandle,
     log_path: PathBuf,
+    cache_path: PathBuf,
     mut settings: watch::Receiver<AppSettings>,
 ) {
     let mut parser = LogParser::new();
     let season_id = find_season_id(&log_path).await;
-
-    let cache_path = app
-        .path()
-        .app_local_data_dir()
-        .map(|d| d.join("prices_cache.json"))
-        .unwrap_or_else(|_| PathBuf::from("prices_cache.json"));
 
     let pricing = PricingManager::new(season_id, cache_path);
     let mut fsm = GameStateMachine::new(settings.borrow().clone());

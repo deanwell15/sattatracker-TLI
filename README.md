@@ -1,56 +1,92 @@
-# TLI-Sattatracker
+# Deanfinite
 
-Transparent always-on-top overlay that tracks loot, expenses and profit per map in Torchlight Infinite. It reads the game's log file, so it does not touch the game process.
+**Deanfinite — Torchlight: Infinite Loot Tracker**
 
-Built with Tauri 2 (Rust backend) and Vue 3.
+Независимый форк [SattaTracker](https://github.com/sattatrapy/sattatracker-TLI-Tauri-public),
+сопровождаемый `deanwell15`. Первоначальный автор исходного проекта — `sattatrapy`.
+Репозиторий форка пока сохраняет имя [deanwell15/sattatracker-TLI](https://github.com/deanwell15/sattatracker-TLI).
 
-## Features
+Прозрачный оверлей на Tauri 2/Rust и Vue 3: лут, расходы, прибыль, таймеры,
+снимок инвентаря, темы и перемещаемые виджеты. Игровые события поступают из лога.
+Поиск пути к логу использует также сведения о процессах; это не обещание полного
+отсутствия обращений библиотеки sysinfo к памяти процессов.
 
-- Loot feed with prices, map timer, per-map and per-session statistics
-- Map expense tracking (compasses, beacons and other consumables)
-- Inventory snapshot and total value
-- Optional auction tax and auction-trade filtering
-- Draggable widgets, themes, low-stock warning
+## Управление
 
-## Hotkeys
+| Клавиша | Действие |
+|---|---|
+| F7 | Скрыть/показать оверлей |
+| F8 | Открыть меню виджетов и настройки |
 
-| Key | Action |
-| --- | --- |
-| F7 | Show / hide the overlay |
-| F8 | Toggle edit mode (move widgets) |
+В игре включить логирование через ESC, открыть инвентарь и выполнить сортировку.
+Ребрендинг не меняет parser, цены, расчёты и поведение виджетов. Известные ошибки
+статистики из аудита остаются отдельной задачей.
 
-The game must have logging enabled: in game press ESC, then enable the log option, and open the inventory once so the tracker can sync.
+## Сборка и проверка
 
-## Build
+Рабочий Windows CI уже находится в main. Для Deanfinite используется тот же
+[workflow](.github/workflows/windows-test-build.yml), адаптированный к новой identity.
+Успех прежней сборки не подтверждает новую версию: проверить run этого PR/коммита.
 
-Requirements: Node.js 20+, Rust stable, WebView2.
+В CI: Node 24.19.0, Rust 1.99.1, Windows 2022/MSVC, существующие npm/Cargo locks.
+Для локальной Windows-сборки нужны также Visual Studio C++ Build Tools и Windows SDK.
 
+```shell
+npm ci
+npm run tauri -- dev
+npm run tauri -- build --ci --target x86_64-pc-windows-msvc --bundles nsis,msi -- --locked
 ```
-npm install
-npm run tauri dev
-npm run tauri build
-```
 
-The release build embeds a manifest that requests administrator rights. Debug builds do not.
+Ожидаемый EXE — **Deanfinite.exe**. Standalone EXE требует Microsoft Edge WebView2
+Runtime и пока не является полностью portable/offline-приложением. Release
+по-прежнему использует `requireAdministrator`; этот манифест не изменялся.
 
-## Prices
+Инструкции: [Windows CI](docs/windows-test-build.md),
+[изоляция данных и Windows smoke-test](docs/deanfinite-branding.md).
 
-By default prices come from `http://115.231.176.101:8080/get?season_id=N`, the same endpoint the first (Python) version of this tracker used. It is an external service that returns the price table by season with Chinese item names. This project does not operate it and has no control over its availability or data.
+## Собственные данные Deanfinite
 
-The season id is read from the game log. The last received table is cached on disk, so the tracker keeps working with the last known prices if the server is unreachable.
+Identifier: **io.github.deanwell15.deanfinite**. Для выполняющего приложение
+Windows-пользователя используются:
 
-To use another source, set `TLI_PRICE_API_URL` to its base URL (`?season_id=N` is appended). The response format must be `{ "<item_id>": { "price": <number> } }`.
+| Данные | Путь |
+|---|---|
+| Backend flags | `%APPDATA%\io.github.deanwell15.deanfinite\config.json` |
+| Цены | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite\prices_cache.json` |
+| Ресурсы | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite\public_assets` |
+| Версия ресурсов / временный архив | Та же LocalAppData-папка: `assets_version.json`, `assets.zip` |
+| WebView2 / localStorage | Собственный профиль под `%LOCALAPPDATA%\io.github.deanwell15.deanfinite` |
 
-## Assets
+Настройки не читаются рядом с EXE или из текущего рабочего каталога. Каталоги
+создаются автоматически; формат двух backend flags сохранён. Сохранение без
+запущенной игры поддерживается. Ошибка записи отображается в окне настроек.
+Повреждённый config не перезаписывается при загрузке: ошибка логируется,
+используются defaults до явного сохранения пользователем.
 
-Images and animations (for example the piggy bank widget) are not bundled with the app. On first launch it downloads them from the GitHub release tagged `Assets` of [sattatrapy/sattatrackerUpdate](https://github.com/sattatrapy/sattatrackerUpdate/releases/tag/Assets), file `assets.zip`, and unpacks them into `public_assets` inside the app local data directory (`%LOCALAPPDATA%\com.fedin.sattatracker`). The release `published_at` date is stored as the local version and the archive is downloaded again when it changes.
+Первый запуск использует чистые настройки. Автоимпорта из SattaTracker нет,
+старые файлы не удаляются. Ключи localStorage остаются прежними, но профиль
+WebView2 отделён новым identifier. Ручной импорт будет отдельной задачей.
 
-Without network access on first launch the tracker works, but those images are missing.
+## Текущие внешние зависимости
 
-## Configuration
+Ребрендинг пока **не удаляет** прежние сетевые механизмы:
 
-Settings are stored in `config.json` next to the executable. The price cache and assets are kept in the app local data directory.
+- Цены: `http://115.231.176.101:8080/get?season_id=N`. Владение и доступность
+  оператора не устанавливаются названием приложения. Сохраняется
+  `TLI_PRICE_API_URL` и прежний формат `{ "<item_id>": { "price": <number> } }`.
+- Иконки/анимации: metadata и `assets.zip` из
+  [sattatrapy/sattatrackerUpdate](https://github.com/sattatrapy/sattatrackerUpdate/releases/tag/Assets).
+  Они скачиваются в собственную папку Deanfinite; чужой архив в этот репозиторий
+  или CI artifact не переносился.
+- Google Fonts CSS и связанные файлы шрифтов.
 
-## License
+При отказе сети доступны только ранее полученные цены/ресурсы; чистый offline
+запуск не гарантирует их наличие. Автообновления самого EXE нет.
+Дальнейшая замена: [план независимости](docs/independence-plan.md).
 
-MIT
+## Лицензия и авторство
+
+[MIT](LICENSE), исходное уведомление **Copyright (c) 2026 sattatrapy** сохранено.
+Сопровождение форка: `deanwell15`; авторство первоначального исходного кода не
+присваивается. Лицензия исходников сама по себе не устанавливает права на
+сторонние игровые изображения, внешний assets.zip и шрифты.

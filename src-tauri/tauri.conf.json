@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "TLI-Sattatracker",
+  "productName": "Deanfinite",
   "version": "1.2.11",
-  "identifier": "com.fedin.sattatracker",
+  "identifier": "io.github.deanwell15.deanfinite",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "TLI-Sattatracker",
+        "title": "Deanfinite",
         "width": 1920,
         "height": 1080,
         "visible": false,
@@ -42,6 +42,14 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
-  }
+    ],
+    "publisher": "deanwell15",
+    "shortDescription": "Deanfinite — Torchlight: Infinite Loot Tracker",
+    "windows": {
+      "wix": {
+        "upgradeCode": "849ca07a-a9b1-5a63-a3dd-ada5058d0f97"
+      }
+    }
+  },
+  "mainBinaryName": "Deanfinite"
 }
