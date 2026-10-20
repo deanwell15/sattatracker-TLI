@@ -217,3 +217,60 @@ fn local_mode_does_not_read_automatic_prices_and_stale_aggregate_can_fall_back()
     assert_eq!(p.get_quote("123456").value, Some(2.0));
     assert_eq!(p.snapshot().prices["123456"].value, Some(2.0));
 }
+
+struct FixtureProvider;
+impl PriceProvider for FixtureProvider {
+    fn load(&self, season: u32, now: i64) -> Result<BTreeMap<String, PriceRecord>, String> {
+        let fixture = include_str!("../../../tests/fixtures/titrack-aggregated-ss14.json")
+            .replace("2026-10-20T08:00:00Z", &timestamp(now));
+        TiTrackPriceProvider::decode_aggregates(&fixture, season, now)
+    }
+}
+#[test]
+fn aggregate_fixture_flows_through_manager_cache_and_offline_restart() {
+    let dir = Temp::new();
+    let p = PricingManager::new(1601, dir.0.clone());
+    p.set_source(SourceMode::Automatic).unwrap();
+    p.refresh_from(&FixtureProvider);
+    assert_eq!(p.get_quote("123456").value, Some(12.5));
+    assert_eq!(p.get_quote("654321").status, PriceStatus::Known);
+    let bytes = fs::read(p.season_path(1601, "automatic.json")).unwrap();
+    p.refresh(); // Production is unavailable: known fixture cache survives.
+    assert_eq!(p.get_quote("123456").value, Some(12.5));
+    assert_eq!(
+        fs::read(p.season_path(1601, "automatic.json")).unwrap(),
+        bytes
+    );
+    let restart = PricingManager::new(1601, dir.0.clone());
+    restart.initialize();
+    assert_eq!(restart.get_quote("123456").value, Some(12.5));
+    assert_eq!(
+        restart.get_quote("123456").source.as_deref(),
+        Some("titrack_aggregate")
+    );
+    restart.set_source(SourceMode::LocalJson).unwrap();
+    assert!(restart.get_quote("123456").value.is_none());
+}
+#[test]
+fn provider_invalid_batch_does_not_overwrite_valid_cache() {
+    struct InvalidProvider;
+    impl PriceProvider for InvalidProvider {
+        fn load(&self, season: u32, now: i64) -> Result<BTreeMap<String, PriceRecord>, String> {
+            let mut rows = FixtureProvider.load(season, now)?;
+            rows.get_mut("123456").unwrap().value = f64::NAN;
+            Ok(rows)
+        }
+    }
+    let dir = Temp::new();
+    let p = PricingManager::new(1601, dir.0.clone());
+    p.set_source(SourceMode::Automatic).unwrap();
+    p.refresh_from(&FixtureProvider);
+    let before = fs::read(p.season_path(1601, "automatic.json")).unwrap();
+    p.refresh_from(&InvalidProvider);
+    assert_eq!(p.get_quote("123456").value, Some(12.5));
+    assert_eq!(
+        fs::read(p.season_path(1601, "automatic.json")).unwrap(),
+        before
+    );
+    assert!(p.snapshot().error.is_some());
+}

@@ -164,7 +164,8 @@ impl PriceProvider for LocalJsonPriceProvider<'_> {
 
 pub struct TiTrackPriceProvider;
 impl PriceProvider for TiTrackPriceProvider {
-    fn load(&self, _season_id: u32, _now: i64) -> Result<BTreeMap<String, PriceRecord>, String> {
+    fn load(&self, season_id: u32, _now: i64) -> Result<BTreeMap<String, PriceRecord>, String> {
+        Self::mapped_season(season_id)?;
         // Deliberate production gate. A published client key is NOT consent.
         Err(ACCESS_BLOCK.into())
     }
@@ -389,18 +390,69 @@ impl PricingManager {
         Ok(())
     }
     pub fn refresh(&self) {
+        self.refresh_from(&TiTrackPriceProvider);
+    }
+    fn refresh_from(&self, provider: &dyn PriceProvider) {
         let _op = self.operation.lock().unwrap();
-        let mut state = self.state.write().unwrap();
-        if state.source == SourceMode::Automatic {
-            // No HTTP request, retry or upload is permitted until access is approved.
-            state.error = Some(
-                TiTrackPriceProvider::mapped_season(state.season_id)
-                    .and_then(|_| TiTrackPriceProvider.load(state.season_id, now_secs()))
-                    .err()
-                    .unwrap_or_else(|| ACCESS_BLOCK.into()),
-            );
+        let (season, source) = {
+            let state = self.state.read().unwrap();
+            (state.season_id, state.source.clone())
+        };
+        if source == SourceMode::Automatic {
+            // Never hold the valuation lock while a provider loads data. The
+            // production provider is gated; tests inject fixture/error providers.
+            let now = now_secs();
+            let result = provider.load(season, now).and_then(|incoming| {
+                if incoming.len() > MAX_ITEMS {
+                    return Err("Too many provider prices".into());
+                }
+                for (id, record) in &incoming {
+                    validate_value(id, record.value)?;
+                    validate_time(&record.updated_at, now)?;
+                    validate_time(&record.received_at, now)?;
+                    if record.source != "titrack_aggregate" {
+                        return Err("Unexpected automatic price source".into());
+                    }
+                }
+                let mut merged = self.state.read().unwrap().automatic.clone();
+                for (id, record) in incoming {
+                    // An incomplete batch or an older observation cannot destroy
+                    // existing known estimates. Their original timestamps age.
+                    let replace = merged
+                        .get(&id)
+                        .map(|previous| {
+                            parse_time(&record.updated_at).unwrap()
+                                >= parse_time(&previous.updated_at).unwrap()
+                        })
+                        .unwrap_or(true);
+                    if replace {
+                        merged.insert(id, record);
+                    }
+                }
+                let doc = CacheDocument {
+                    schema_version: 1,
+                    season_id: season,
+                    currency: "FE".into(),
+                    prices: merged.clone(),
+                };
+                atomic_write(
+                    &self.season_path(season, "automatic.json"),
+                    &serde_json::to_vec_pretty(&doc).map_err(|e| e.to_string())?,
+                )?;
+                Ok(merged)
+            });
+            let mut state = self.state.write().unwrap();
+            match result {
+                Ok(prices) => {
+                    state.automatic = prices;
+                    state.last_success_at = Some(timestamp(now));
+                    state.error = None;
+                }
+                Err(error) => state.error = Some(error),
+            }
         }
-        state.revision += 1; // Also refresh stale statuses without treating them as drops.
+        // Also refresh stale statuses without treating them as drops.
+        self.state.write().unwrap().revision += 1;
     }
     pub fn snapshot(&self) -> PricingSnapshot {
         let state = self.state.read().unwrap();
