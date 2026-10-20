@@ -25,28 +25,26 @@ concurrency:
 
 jobs:
   build-windows:
-    # Preserve the pre-existing Full check name for branch protection.
-    name: ${{ matrix.mode == 'full' && 'build-windows' || 'build-windows (fast)' }}
+    # One stable check runs every mandatory test, then the selected packaging.
+    # Keep this name for branch protection; never make it conditional on mode.
+    name: build-windows
     if: github.repository == 'deanwell15/sattatracker-TLI'
-    # PRs verify BOTH modes. Manual runs build only the selected mode.
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: ${{ fromJSON(github.event_name == 'pull_request' && '["full","fast"]' || (inputs.build_mode == 'full' && '["full"]' || '["fast"]')) }}
     runs-on: windows-2022
     timeout-minutes: 60
     defaults:
       run:
         shell: pwsh
     env:
+      # PRs always use Fast. Only an explicit manual Full selects installers.
+      BUILD_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.build_mode == 'full' && 'full' || 'fast' }}
       RUSTUP_TOOLCHAIN: 1.99.1
       RUST_TARGET: x86_64-pc-windows-msvc
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CARGO_TERM_COLOR: always
       # Fast has the same code/resources, with cheaper release optimization.
       # Keep production Full optimization unchanged. Never reuse across modes.
-      CARGO_PROFILE_RELEASE_LTO: ${{ matrix.mode == 'fast' && 'false' || 'true' }}
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.mode == 'fast' && '16' || '1' }}
+      CARGO_PROFILE_RELEASE_LTO: ${{ github.event_name == 'workflow_dispatch' && inputs.build_mode == 'full' && 'true' || 'false' }}
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ github.event_name == 'workflow_dispatch' && inputs.build_mode == 'full' && '1' || '16' }}
 
     steps:
       - name: Check out the requested revision
@@ -114,29 +112,29 @@ jobs:
             ~/.cargo/registry/src
             ~/.cargo/git/db
             src-tauri/target
-          key: windows2022-rust1.99.1-x64-${{ matrix.mode }}-v1-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('src-tauri/src/**', 'src-tauri/build.rs', 'src-tauri/Cargo.toml', 'src-tauri/tauri*.json', 'src/**', 'package-lock.json', 'vite.config.*', 'assets/**') }}
+          key: windows2022-rust1.99.1-x64-${{ env.BUILD_MODE }}-v1-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('src-tauri/src/**', 'src-tauri/build.rs', 'src-tauri/Cargo.toml', 'src-tauri/tauri*.json', 'src/**', 'package-lock.json', 'vite.config.*', 'assets/**') }}
           restore-keys: |
-            windows2022-rust1.99.1-x64-${{ matrix.mode }}-v1-${{ hashFiles('src-tauri/Cargo.lock') }}-
+            windows2022-rust1.99.1-x64-${{ env.BUILD_MODE }}-v1-${{ hashFiles('src-tauri/Cargo.lock') }}-
 
       - name: Build frontend and Fast Windows EXE without installers
-        if: matrix.mode == 'fast'
+        if: env.BUILD_MODE == 'fast'
         run: npm run tauri -- build --ci --target $env:RUST_TARGET --no-bundle -- --locked
 
       # tauri.conf.json beforeBuildCommand runs npm run build (vue-tsc + Vite).
       # Arguments after -- are passed to Cargo, so Cargo.lock is enforced.
       # Tauri's bundler obtains its WiX/NSIS packaging tools; no app is launched.
       - name: Build frontend and Windows installers
-        if: matrix.mode == 'full'
+        if: env.BUILD_MODE == 'full'
         run: npm run tauri -- build --ci --target $env:RUST_TARGET --bundles "nsis,msi" -- --locked
 
       - name: Test pricing, parser integration, settings and icon access
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --release --target $env:RUST_TARGET --lib
 
       # A separate best-effort diagnostic, not part of mandatory offline tests.
-      # Same-repository PR Full builds exercise the real provider; manual Full
-      # runs require explicit live_prices=true. Never runs in Fast or fork PRs.
+      # Manual Full runs require explicit live_prices=true. Never runs in Fast.
+      # It cannot satisfy or replace any mandatory offline test.
       - name: Diagnose real TITrack cloud cache separately from offline tests
-        if: matrix.mode == 'full' && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || inputs.live_prices == true)
+        if: github.event_name == 'workflow_dispatch' && env.BUILD_MODE == 'full' && inputs.live_prices == true
         env:
           DEANFINITE_LIVE_RESULT_PATH: ${{ github.workspace }}/LIVE_TITRACK_RESULT.json
         run: |
@@ -150,14 +148,14 @@ jobs:
           exit 0
 
       - name: Verify original graphics in Windows installer payloads
-        if: matrix.mode == 'full'
+        if: env.BUILD_MODE == 'full'
         run: ./tools/verify-windows-bundles.ps1 -ReleaseRoot (Join-Path $env:CARGO_TARGET_DIR "$env:RUST_TARGET/release")
 
       - name: Verify dependency lock files were not changed
         run: git diff --exit-code -- package-lock.json src-tauri/Cargo.lock
 
       - name: Collect installers, standalone EXE and build metadata
-        if: matrix.mode == 'full'
+        if: env.BUILD_MODE == 'full'
         run: |
           $releaseRoot = Join-Path $env:CARGO_TARGET_DIR "$env:RUST_TARGET/release"
           $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
@@ -277,7 +275,7 @@ jobs:
           $checksums | Set-Content -LiteralPath (Join-Path $outputRoot 'SHA256SUMS.txt') -Encoding utf8
 
       - name: Collect Fast EXE replacement and verify existing-kit compatibility
-        if: matrix.mode == 'fast'
+        if: env.BUILD_MODE == 'fast'
         run: |
           $releaseRoot = Join-Path $env:CARGO_TARGET_DIR "$env:RUST_TARGET/release"
           node tools/prepare-fast-build.mjs $releaseRoot artifacts
@@ -297,7 +295,7 @@ jobs:
       - name: Upload Windows test build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: deanfinite-windows-${{ matrix.mode }}-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          name: deanfinite-windows-${{ env.BUILD_MODE }}-x64-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 14

@@ -133,10 +133,11 @@ gh workflow run windows-test-build.yml --repo deanwell15/sattatracker-TLI --ref 
 Full: `-f build_mode=full`. Дополнительная live-диагностика для ручного Full:
 `-f build_mode=full -F live_prices=true`.
 
-PR в main автоматически запускает оба режима, полный набор проверок не убирается.
-Перед merge необходим зелёный Full (`build-windows`) и Fast (`build-windows (fast)`).
-Имя прежней Full-проверки `build-windows` сохранено для совместимости с существующими
-required checks. Настройки защиты ветки этим PR не меняются.
+Обновление workflow: PR в main автоматически запускает только Fast.
+Одна стабильная job `build-windows` выполняет все общие тесты и выбранную упаковку;
+Full доступен вручную перед merge для текущей ветки. Матрица удалена.
+Фактическая защита main отключена; для запрета merge без проверок требуется
+настройка GitHub — см. [Windows CI и branch protection](windows-test-build.md).
 Результаты: Artifacts → `deanfinite-windows-fast-x64-<run>-<attempt>` либо
 `deanfinite-windows-full-x64-<run>-<attempt>`. Хранение 14 дней, compression-level=0.
 
@@ -184,8 +185,10 @@ median=388, updated_at=2026-10-20T08:45:00.442384+00:00.
 Supabase не получен. Новые live-запросы из этого Linux окружения не выполнялись.
 
 **Windows CI:** обязательные offline/mock tests отделены от ignored live-теста
-`live_titrack_populates_isolated_cloud_cache`. В Full для PR из того же репозитория
-он отдельно вызывается по реальному HTTPS; в ручном Full — только с live_prices=true.
+`live_titrack_populates_isolated_cloud_cache`. В текущем workflow
+он отдельно вызывается только в ручном Full с live_prices=true. Ранее отдельный
+запуск Full на Windows runner подтвердил загрузку 2073 реальных цен; это
+исторический результат, не новая live-проверка при каждом push.
 Создаётся изолированный временный PricingManager cache, без AppData и игровых данных.
 Результат сохраняется в `LIVE_TITRACK_RESULT.json` Full artifact. Live ошибка даёт
 предупреждение и `live_verified=false`, не отменяет корректность сборки/оффлайн-тестов.
