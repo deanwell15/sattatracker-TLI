@@ -104,6 +104,14 @@ try {
     await eventually(() => settingsRoot.textContent!.includes(message), `Import UI failed: ${message}`);
     assert(store.sessionLootCount === 6 && store.totalProfit === 52, 'Import changed quantity or destroyed prior valuation');
   }
+  mockedPricing = { ...mockedPricing!, revision: 100, source: 'automatic', connection: 'online', error: null,
+    cloud_count: 2501, local_count: 0, last_success_at: '2026-10-20T08:45:00Z',
+    last_sync: { received: 2501, accepted: 2501, skipped: 0, skip_reasons: {}, low_observation_rows: 1 } };
+  await emit('price_snapshot', mockedPricing); await nextTick();
+  assert(settingsRoot.textContent!.includes('Cloud cache: 2501 IDs'), 'Successful cloud cache count not rendered');
+  assert(settingsRoot.textContent!.includes('2501 accepted') && settingsRoot.textContent!.includes('0 skipped'), 'Sync statistics not rendered');
+  assert(!settingsRoot.textContent!.includes('TITrack HTTP 503'), 'Successful sync retained obsolete error');
+  assert(store.sessionLootCount === 6 && store.latestDrop === lastDrop && store.totalProfit === 52, 'Cloud snapshot replayed loot or effects');
   settingsApp.unmount(); settingsRoot.remove();
 
   const probe = ref('/__missing_asset__.png');

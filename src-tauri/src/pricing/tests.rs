@@ -126,7 +126,6 @@ fn titrack_fixture_is_aggregate_only_and_validated() {
     for bad in [
         fixture.replace("1601", "1501"),
         fixture.replace("12.5", "-1"),
-        fixture.replace("\"unique_devices\":4", "\"unique_devices\":1"),
         fixture.replace("2026-10-20T08:00:00Z", "wrong"),
     ] {
         assert!(TiTrackPriceProvider::decode_aggregates(&bad, 1601, now).is_err());

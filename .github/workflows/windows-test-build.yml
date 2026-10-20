@@ -2,6 +2,17 @@ name: Deanfinite Windows test build
 
 on:
   workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'Fast: replace EXE in existing kit; Full: kit + MSI + NSIS'
+        type: choice
+        options: [fast, full]
+        default: fast
+        required: true
+      live_prices:
+        description: 'Full only: separate non-gating real read-only Supabase diagnostic'
+        type: boolean
+        default: false
   pull_request:
     branches: [main]
 
@@ -15,6 +26,11 @@ concurrency:
 jobs:
   build-windows:
     if: github.repository == 'deanwell15/sattatracker-TLI'
+    # PRs verify BOTH modes. Manual runs build only the selected mode.
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: ${{ fromJSON(github.event_name == 'pull_request' && '["full","fast"]' || (inputs.build_mode == 'full' && '["full"]' || '["fast"]')) }}
     runs-on: windows-2022
     timeout-minutes: 60
     defaults:
@@ -25,6 +41,10 @@ jobs:
       RUST_TARGET: x86_64-pc-windows-msvc
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CARGO_TERM_COLOR: always
+      # Fast has the same code/resources, with cheaper release optimization.
+      # Keep production Full optimization unchanged. Never reuse across modes.
+      CARGO_PROFILE_RELEASE_LTO: ${{ matrix.mode == 'fast' && 'false' || 'true' }}
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.mode == 'fast' && '16' || '1' }}
 
     steps:
       - name: Check out the requested revision
@@ -36,12 +56,17 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install frontend and Tauri CLI from package-lock.json
         run: npm ci
 
       - name: Typecheck frontend
         run: node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+      - name: Test Fast artifact and resource compatibility contract
+        run: node --test tests/fast-build.test.mjs
 
       - name: Test price valuations and lossless loot accounting
         run: npm run test:pricing
@@ -75,22 +100,62 @@ jobs:
       - name: Install the pinned Rust toolchain and Windows target
         run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --target $env:RUST_TARGET
 
+      # Immutable caches are scoped by OS/compiler/target/optimization/lock.
+      # Restore older source keys to reuse dependencies; Cargo checks fingerprints.
+      # PR merge-ref caches cannot poison main; no pull_request_target or secrets.
+      - name: Cache Cargo downloads and compiled dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/src
+            ~/.cargo/git/db
+            src-tauri/target
+          key: windows2022-rust1.99.1-x64-${{ matrix.mode }}-v1-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ hashFiles('src-tauri/src/**', 'src-tauri/build.rs', 'src-tauri/Cargo.toml', 'src-tauri/tauri*.json', 'src/**', 'package-lock.json', 'vite.config.*', 'assets/**') }}
+          restore-keys: |
+            windows2022-rust1.99.1-x64-${{ matrix.mode }}-v1-${{ hashFiles('src-tauri/Cargo.lock') }}-
+
+      - name: Build frontend and Fast Windows EXE without installers
+        if: matrix.mode == 'fast'
+        run: npm run tauri -- build --ci --target $env:RUST_TARGET --no-bundle -- --locked
+
       # tauri.conf.json beforeBuildCommand runs npm run build (vue-tsc + Vite).
       # Arguments after -- are passed to Cargo, so Cargo.lock is enforced.
       # Tauri's bundler obtains its WiX/NSIS packaging tools; no app is launched.
       - name: Build frontend and Windows installers
+        if: matrix.mode == 'full'
         run: npm run tauri -- build --ci --target $env:RUST_TARGET --bundles "nsis,msi" -- --locked
 
       - name: Test pricing, parser integration, settings and icon access
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --release --target $env:RUST_TARGET --lib
 
+      # A separate best-effort diagnostic, not part of mandatory offline tests.
+      # Same-repository PR Full builds exercise the real provider; manual Full
+      # runs require explicit live_prices=true. Never runs in Fast or fork PRs.
+      - name: Diagnose real TITrack cloud cache separately from offline tests
+        if: matrix.mode == 'full' && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || inputs.live_prices == true)
+        env:
+          DEANFINITE_LIVE_RESULT_PATH: ${{ github.workspace }}/LIVE_TITRACK_RESULT.json
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --release --target $env:RUST_TARGET --lib live_titrack_populates_isolated_cloud_cache -- --ignored --nocapture
+          $diagnosticExit = $LASTEXITCODE
+          if (!(Test-Path LIVE_TITRACK_RESULT.json)) {
+            @{ live_verified = $false; error = 'Diagnostic did not produce a result'; exitCode = $diagnosticExit } |
+              ConvertTo-Json | Set-Content LIVE_TITRACK_RESULT.json -Encoding utf8
+          }
+          if ($diagnosticExit -ne 0) { Write-Output '::warning::Live TITrack cloud cache was NOT verified. See LIVE_TITRACK_RESULT.json; offline tests remain separate.' }
+          exit 0
+
       - name: Verify original graphics in Windows installer payloads
+        if: matrix.mode == 'full'
         run: ./tools/verify-windows-bundles.ps1 -ReleaseRoot (Join-Path $env:CARGO_TARGET_DIR "$env:RUST_TARGET/release")
 
       - name: Verify dependency lock files were not changed
         run: git diff --exit-code -- package-lock.json src-tauri/Cargo.lock
 
       - name: Collect installers, standalone EXE and build metadata
+        if: matrix.mode == 'full'
         run: |
           $releaseRoot = Join-Path $env:CARGO_TARGET_DIR "$env:RUST_TARGET/release"
           $outputRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
@@ -124,6 +189,8 @@ jobs:
             }
           }
           Copy-Item -LiteralPath 'assets/original-assets.manifest.json' -Destination (Join-Path $outputRoot 'ORIGINAL_ASSETS.json')
+          if (Test-Path LIVE_TITRACK_RESULT.json) { Copy-Item LIVE_TITRACK_RESULT.json $outputRoot }
+          Copy-Item 'docs/TITRACK_SYNC_FAST_BUILD_REPORT.md' (Join-Path $outputRoot 'TITRACK_SYNC_FAST_BUILD_REPORT.md')
           Copy-Item -LiteralPath 'LICENSE' -Destination $outputRoot
           Copy-Item -LiteralPath 'ASSET_LICENSES.md' -Destination $outputRoot
 
@@ -207,10 +274,28 @@ jobs:
             })
           $checksums | Set-Content -LiteralPath (Join-Path $outputRoot 'SHA256SUMS.txt') -Encoding utf8
 
+      - name: Collect Fast EXE replacement and verify existing-kit compatibility
+        if: matrix.mode == 'fast'
+        run: |
+          $releaseRoot = Join-Path $env:CARGO_TARGET_DIR "$env:RUST_TARGET/release"
+          node tools/prepare-fast-build.mjs $releaseRoot artifacts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tools/check-standalone-kit.ps1 -KitRoot $releaseRoot -ContractPath artifacts/RESOURCE_COMPATIBILITY.json
+          $badContract = Join-Path $env:RUNNER_TEMP 'deanfinite-wrong-resource-contract.json'
+          $wrong = Get-Content artifacts/RESOURCE_COMPATIBILITY.json -Raw | ConvertFrom-Json
+          $wrong.iconsSha256 = '0' * 64
+          $wrong | ConvertTo-Json | Set-Content $badContract -Encoding utf8
+          $rejected = $false
+          try { ./tools/check-standalone-kit.ps1 -KitRoot $releaseRoot -ContractPath $badContract }
+          catch { $rejected = $true }
+          if (!$rejected) { throw 'Compatibility check accepted a wrong resource edition.' }
+          # Fast's fresh cache namespace never runs a bundler. Reject installers.
+          if (Test-Path -LiteralPath (Join-Path $releaseRoot 'bundle')) { throw 'Fast build unexpectedly produced installer bundles.' }
+
       - name: Upload Windows test build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: deanfinite-windows-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          name: deanfinite-windows-${{ matrix.mode }}-x64-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 14

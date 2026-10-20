@@ -8,6 +8,7 @@
     </select>
     <p class="setting-desc">Season: {{ store.pricing?.season_id ?? 1601 }} · {{ store.pricing?.available_count ?? 1 }} priced IDs (including FE)</p>
     <p class="setting-desc">Cloud cache: {{ store.pricing?.cloud_count ?? 0 }} IDs · Local table: {{ store.pricing?.local_count ?? 0 }} IDs</p>
+    <p v-if="store.pricing?.last_sync" class="setting-desc">Last sync: {{ store.pricing.last_sync.received }} received · {{ store.pricing.last_sync.accepted }} accepted · {{ store.pricing.last_sync.skipped }} skipped · {{ store.pricing.last_sync.low_observation_rows }} with low observation counts (accepted)</p>
     <p class="setting-desc">Connection: {{ store.pricing?.connection ?? 'initializing' }} · refresh: 5 minutes</p>
     <p class="setting-desc">Last successful load: {{ store.pricing?.last_success_at ?? 'never' }}</p>
     <p v-if="store.pricing?.next_retry_at" class="setting-desc">Next request: {{ store.pricing.next_retry_at }}</p>

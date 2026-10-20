@@ -19,6 +19,7 @@ export interface PricingSnapshot {
   refresh_seconds: number;
   titrack_enabled: boolean;
   next_retry_at?: string | null;
+  last_sync?: { received: number; accepted: number; skipped: number; skip_reasons: Record<string, number>; low_observation_rows: number } | null;
   prices: Record<string, PriceQuote>;
 }
 export const unknownPrice = (): PriceQuote => ({ value: null, status: 'unknown', source: null, updated_at: null, received_at: null });

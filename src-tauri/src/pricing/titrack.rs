@@ -18,10 +18,23 @@ pub const FULL_SYNC_SECONDS: i64 = 6 * 60 * 60;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct SyncStatistics {
+    pub received: usize,
+    pub accepted: usize,
+    pub skipped: usize,
+    pub skip_reasons: BTreeMap<String, usize>,
+    // Diagnostic only, never an additional quorum requirement.
+    pub low_observation_rows: usize,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SyncMetadata {
     pub cursor: Option<String>,
     pub last_full_at: Option<String>,
     pub last_success_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statistics: Option<SyncStatistics>,
 }
 #[derive(Clone)]
 pub struct SyncRequest {
@@ -318,6 +331,7 @@ fn fetch_table(
         request.metadata.cursor.clone()
     };
     let mut records = BTreeMap::new();
+    let mut statistics = SyncStatistics::default();
     let mut after_id = 0u64;
     let mut cursor: Option<String> = None;
     let mut finished = upper.is_none();
@@ -338,7 +352,18 @@ fn fetch_table(
             if rows.len() > page_size {
                 return Err(ProviderError::new("TITrack page exceeds requested size"));
             }
+            statistics.received += rows.len();
+            if statistics.received > MAX_NETWORK_ITEMS {
+                return Err(ProviderError::new("TITrack record limit exceeded"));
+            }
             for row in &rows {
+                let devices = row["unique_devices"].as_u64();
+                let submissions = row["submission_count"].as_u64();
+                if devices.is_some_and(|n| n < 3)
+                    || devices.zip(submissions).is_some_and(|(d, s)| s < d)
+                {
+                    statistics.low_observation_rows += 1;
+                }
                 let id = row["config_base_id"]
                     .as_u64()
                     .ok_or_else(|| ProviderError::new("Invalid TITrack item ID"))?;
@@ -370,6 +395,7 @@ fn fetch_table(
                 season,
                 now,
             )?);
+            statistics.accepted = records.len();
             if records.len() > MAX_NETWORK_ITEMS {
                 return Err(ProviderError::new("TITrack record limit exceeded"));
             }
@@ -397,6 +423,11 @@ fn fetch_table(
             cursor = Some(previous.clone());
         }
     }
+    eprintln!(
+        "[pricing] TITrack validated batch: season={season}, received={}, accepted={}, skipped={}, skip_reasons={:?}, low_observation_rows={} (accepted server aggregates)",
+        statistics.received, statistics.accepted, statistics.skipped,
+        statistics.skip_reasons, statistics.low_observation_rows
+    );
     Ok(ProviderBatch {
         records,
         sync: Some(SyncMetadata {
@@ -407,6 +438,7 @@ fn fetch_table(
                 request.metadata.last_full_at.clone()
             },
             last_success_at: Some(timestamp(now_secs())),
+            statistics: Some(statistics),
         }),
     })
 }

@@ -98,6 +98,7 @@ fn empty_delta_retains_cursor_and_periodic_full_has_no_lower_filter() {
             cursor: Some(time.clone()),
             last_full_at: Some(timestamp(now)),
             last_success_at: None,
+            statistics: None,
         },
         cancellation: None,
     };
@@ -579,4 +580,155 @@ fn retry_after_starts_at_error_receipt_not_beginning_of_slow_sync() {
     };
     manager.refresh_at(&provider, now - 120, true);
     assert!(manager.state.read().unwrap().next_request_at >= now + 600);
+}
+
+#[test]
+fn mixed_observation_counts_are_metadata_not_a_batch_veto() {
+    let now = now_secs();
+    let t = timestamp(now - 1);
+    let mut low = row(350715, &t);
+    low["unique_devices"] = serde_json::json!(1);
+    low["submission_count"] = serde_json::json!(1);
+    let mut optional = row(350716, &t);
+    optional["unique_devices"] = serde_json::Value::Null;
+    optional.as_object_mut().unwrap().remove("submission_count");
+    // Even the high-watermark row may have low observation counts.
+    let provider = TableProvider(Mock::rows(vec![
+        vec![low.clone()],
+        vec![row(350714, &t), low],
+        vec![optional],
+    ]));
+    let dir = Temp::new();
+    let manager = PricingManager::new(1601, dir.0.clone());
+    manager.set_source(SourceMode::Automatic).unwrap();
+    manager.refresh_at(&provider, now, false);
+    let snapshot = manager.snapshot();
+    assert_eq!(snapshot.cloud_count, 3);
+    assert_eq!(snapshot.connection, "online");
+    assert!(snapshot.last_success_at.is_some());
+    assert!(snapshot.error.is_none());
+    let stats = snapshot.last_sync.unwrap();
+    assert_eq!((stats.received, stats.accepted, stats.skipped), (3, 3, 0));
+    assert_eq!(stats.low_observation_rows, 1);
+    assert!(stats.skip_reasons.is_empty());
+    let restart = PricingManager::new(1601, dir.0.clone());
+    restart.initialize();
+    assert_eq!(restart.snapshot().cloud_count, 3);
+    assert_eq!(restart.get_quote("350715").value, Some(388.0));
+    assert_eq!(restart.snapshot().last_sync.unwrap().accepted, 3);
+}
+
+#[test]
+fn real_http_pages_populate_cloud_cache_with_2501_prices_and_offline_restart() {
+    struct WireProvider(HttpsTransport);
+    impl PriceProvider for WireProvider {
+        fn load(&self, _: u32, _: i64) -> Result<BTreeMap<String, PriceRecord>, String> {
+            unreachable!()
+        }
+        fn fetch(&self, s: u32, n: i64, r: &SyncRequest) -> Result<ProviderBatch, ProviderError> {
+            fetch_table(&self.0, s, n, r, PAGE_SIZE, MAX_PAGES)
+        }
+    }
+    let now = now_secs();
+    let t = timestamp(now - 1);
+    let rows: Vec<_> = (350000..352501).map(|id| row(id, &t)).collect();
+    let mut replies = vec![(
+        200,
+        String::new(),
+        serde_json::to_string(&rows[..1]).unwrap(),
+        0,
+    )];
+    for page in rows.chunks(PAGE_SIZE) {
+        replies.push((200, String::new(), serde_json::to_string(page).unwrap(), 0));
+    }
+    replies.push((200, String::new(), "[]".into(), 0));
+    let (endpoint, requests, handle) = server(replies);
+    let dir = Temp::new();
+    let manager = PricingManager::new(1601, dir.0.clone());
+    manager.set_source(SourceMode::Automatic).unwrap();
+    let provider = WireProvider(HttpsTransport::loopback(endpoint, Duration::from_secs(1)));
+    manager.refresh_at(&provider, now, false);
+    handle.join().unwrap();
+    assert_eq!(requests.try_iter().count(), 5);
+    assert_eq!(manager.snapshot().cloud_count, 2501);
+    assert_eq!(manager.snapshot().last_sync.unwrap().accepted, 2501);
+    assert_eq!(manager.get_quote("352500").value, Some(388.0));
+    let restart = PricingManager::new(1601, dir.0.clone());
+    restart.initialize();
+    assert_eq!(restart.snapshot().cloud_count, 2501);
+    assert_eq!(restart.get_quote("352500").value, Some(388.0));
+}
+
+#[test]
+fn malformed_later_page_does_not_commit_prices_statistics_or_cursor() {
+    let now = now_secs();
+    let t = timestamp(now - 1);
+    let dir = Temp::new();
+    let manager = PricingManager::new(1601, dir.0.clone());
+    manager.set_source(SourceMode::Automatic).unwrap();
+    manager.refresh_at(
+        &TableProvider(Mock::rows(vec![
+            vec![row(350714, &t)],
+            vec![row(350714, &t)],
+        ])),
+        now,
+        false,
+    );
+    let path = manager.season_path(1601, "automatic.json");
+    let before = fs::read(&path).unwrap();
+    let broken = TableProvider(Mock::rows(vec![
+        vec![row(350718, &t)],
+        vec![row(350715, &t)],
+    ]));
+    broken.0.responses.lock().unwrap().insert(
+        2,
+        Ok(HttpResponse {
+            bytes: b"[{broken".to_vec(),
+            status: 200,
+            retry_after: None,
+        }),
+    );
+    manager.refresh_at(&broken, now, false);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(manager.snapshot().cloud_count, 1);
+    assert_eq!(manager.snapshot().last_sync.unwrap().accepted, 1);
+    assert!(manager.get_quote("350715").value.is_none());
+}
+
+/// Explicit network diagnostic, excluded from the mandatory offline test suite.
+/// Uses temporary storage, never the user's AppData, logs or game inventory.
+#[test]
+#[ignore = "explicit read-only live Supabase diagnostic; not an offline unit test"]
+fn live_titrack_populates_isolated_cloud_cache() {
+    let dir = Temp::new();
+    let manager = PricingManager::new(1601, dir.0.clone());
+    manager.set_source(SourceMode::Automatic).unwrap();
+    manager.refresh();
+    let snapshot = manager.snapshot();
+    let verified = snapshot.connection == "online"
+        && snapshot.cloud_count > 0
+        && snapshot.last_success_at.is_some()
+        && snapshot.error.is_none();
+    let result = serde_json::json!({
+        "live_verified": verified, "season_id": snapshot.season_id,
+        "cloud_count": snapshot.cloud_count, "connection": snapshot.connection,
+        "last_success_at": snapshot.last_success_at, "error": snapshot.error,
+        "statistics": snapshot.last_sync,
+        "scope": "real read-only HTTPS provider -> isolated PricingManager cache; no GUI or game data",
+    });
+    if let Some(path) = std::env::var_os("DEANFINITE_LIVE_RESULT_PATH") {
+        fs::write(path, serde_json::to_vec_pretty(&result).unwrap()).unwrap();
+    }
+    // No request, key, response body or item table is printed.
+    eprintln!(
+        "[pricing] live diagnostic: verified={verified}, cloud_count={}",
+        snapshot.cloud_count
+    );
+    assert!(
+        verified,
+        "Live cloud cache not verified; see sanitized LIVE_TITRACK_RESULT.json"
+    );
+    let restart = PricingManager::new(1601, dir.0.clone());
+    restart.initialize();
+    assert_eq!(restart.snapshot().cloud_count, snapshot.cloud_count);
 }

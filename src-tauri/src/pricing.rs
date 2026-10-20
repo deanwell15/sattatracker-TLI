@@ -9,7 +9,9 @@ use std::sync::{Arc, Mutex, RwLock};
 #[path = "pricing/titrack.rs"]
 mod titrack;
 use std::time::{SystemTime, UNIX_EPOCH};
-pub use titrack::{ProviderBatch, ProviderError, SyncMetadata, SyncRequest, TiTrackPriceProvider};
+pub use titrack::{
+    ProviderBatch, ProviderError, SyncMetadata, SyncRequest, SyncStatistics, TiTrackPriceProvider,
+};
 
 pub const REFRESH_SECONDS: u64 = 5 * 60;
 pub const STALE_SECONDS: i64 = 24 * 60 * 60;
@@ -109,6 +111,7 @@ pub struct PricingSnapshot {
     pub refresh_seconds: u64,
     pub titrack_enabled: bool,
     pub next_retry_at: Option<String>,
+    pub last_sync: Option<SyncStatistics>,
     pub prices: BTreeMap<String, PriceQuote>,
 }
 
@@ -210,8 +213,12 @@ impl TiTrackPriceProvider {
             price_fe_median: f64,
             price_fe_p10: Option<f64>,
             price_fe_p90: Option<f64>,
-            unique_devices: u32,
-            submission_count: u32,
+            // Upstream CloudPrice treats these as optional descriptive metadata.
+            // The server aggregate is the price source; no client quorum veto.
+            #[serde(rename = "unique_devices")]
+            _unique_devices: Option<u32>,
+            #[serde(rename = "submission_count")]
+            _submission_count: Option<u32>,
             updated_at: String,
         }
         let mapped = Self::mapped_season(season_id)?;
@@ -227,9 +234,6 @@ impl TiTrackPriceProvider {
         for row in rows {
             if row.season_id != mapped {
                 return Err("TITrack season mismatch".into());
-            }
-            if row.unique_devices < 3 || row.submission_count < row.unique_devices {
-                return Err("TITrack aggregate has insufficient community observations".into());
             }
             for value in [row.price_fe_p10, row.price_fe_p90].into_iter().flatten() {
                 if !value.is_finite() || !(0.0..=MAX_PRICE).contains(&value) {
@@ -633,6 +637,7 @@ impl PricingManager {
             next_retry_at: chrono::DateTime::from_timestamp(state.next_request_at, 0)
                 .filter(|_| state.source == SourceMode::Automatic && state.next_request_at > now)
                 .map(|time| time.to_rfc3339()),
+            last_sync: state.sync.statistics.clone(),
             prices,
         }
     }
