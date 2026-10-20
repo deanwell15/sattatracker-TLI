@@ -1,10 +1,13 @@
 import { defineStore } from 'pinia';
+import { unknownPrice, type PriceQuote, type PricingSnapshot } from '../utils/prices';
 
 export interface InventorySnapshotItem {
   item_id:   string;
   item_name: string;
   qty:       number;
   price:     number;
+  valuation?: PriceQuote;
+  season_id?: number;
 }
 
 export interface LootItem {
@@ -13,6 +16,10 @@ export interface LootItem {
   qty: number;
   price: number;
   timestamp: number;
+  valuation?: PriceQuote;
+  season_id?: number;
+  valuationWeight?: number;
+  accountedValue?: number;
 }
 
 export interface ExpenseItem {
@@ -26,6 +33,7 @@ export interface ExpenseItem {
 export const useTrackerStore = defineStore('tracker', {
   state: () => ({
     minPriceThreshold: 0.1,
+    pricing: null as PricingSnapshot | null,
     mapCost: 0,
     applyTax: false,
     ignoreAuction: false,
@@ -159,44 +167,83 @@ export const useTrackerStore = defineStore('tracker', {
       }
     },
 
+    passesLootFilter(item: { price: number; qty: number; valuation?: PriceQuote }): boolean {
+      const value = item.valuation?.status === 'unknown' ? 0 : item.price * item.qty;
+      return value >= this.minPriceThreshold;
+    },
+
+    shouldAnimateDrop(item: LootItem): boolean {
+      return item.valuation?.status !== 'unknown' && item.price * item.qty > 0 && this.passesLootFilter(item);
+    },
+
     addDrop(item: LootItem) {
-      if (item.qty <= 0) return;
-
-      let effectivePrice = item.price;
-      if (this.applyTax && item.item_id !== '100300') {
-        effectivePrice = item.price * 0.875;
-      }
-
-      const totalValue = Math.round(effectivePrice * item.qty * 100) / 100;
-
-      if (totalValue < this.minPriceThreshold) return;
-
-      const taxedItem: LootItem = { ...item, price: effectivePrice };
-
-      this.totalProfit      = Math.round((this.totalProfit      + totalValue) * 100) / 100;
+      if (!/^[1-9][0-9]{0,11}$/.test(item.item_id) || !Number.isSafeInteger(item.qty) || item.qty <= 0) return;
+      const valuation = item.valuation ?? (Number.isFinite(item.price) && item.price >= 0
+        ? { value: item.price, status: 'known' as const, source: 'event', updated_at: null, received_at: null }
+        : unknownPrice());
+      const multiplier = this.applyTax && item.item_id !== '100300' ? 0.875 : 1;
+      const price = (valuation.value ?? 0) * multiplier;
+      const drop: LootItem = { ...item, season_id: item.season_id ?? this.pricing?.season_id ?? 1601,
+        price, valuation: { ...valuation }, valuationWeight: item.qty * multiplier };
+      const totalValue = Math.round(price * item.qty * 100) / 100;
+      this.totalProfit = Math.round((this.totalProfit + totalValue) * 100) / 100;
       this.currentMapProfit = Math.round((this.currentMapProfit + totalValue) * 100) / 100;
       this.sessionLootCount += item.qty;
-      this.inventoryValue   = Math.round((this.inventoryValue   + totalValue) * 100) / 100;
+      this.inventoryValue = Math.round((this.inventoryValue + totalValue) * 100) / 100;
+      drop.accountedValue = totalValue;
+      const append = (list: LootItem[]) => {
+        const existing = list.find(d => d.item_id === drop.item_id && d.season_id === drop.season_id);
+        if (existing) {
+          const previousValue = existing.price * existing.qty;
+          existing.accountedValue = Math.round(((existing.accountedValue ?? previousValue) + totalValue) * 100) / 100;
+          existing.qty += drop.qty;
+          existing.valuationWeight = (existing.valuationWeight ?? 0) + drop.valuationWeight!;
+          existing.price = (previousValue + price * drop.qty) / existing.qty;
+          existing.valuation = { ...valuation };
+        } else {
+          // Never share an object between session, map and the effect event.
+          list.push({ ...drop, valuation: { ...valuation } });
+        }
+      };
+      append(this.sessionDrops);
+      append(this.currentMapDrops);
+      this.latestDrop = { ...drop, valuation: { ...valuation } };
+    },
 
-      const existingSession = this.sessionDrops.find(d => d.item_id === taxedItem.item_id);
-      if (existingSession) {
-        const prevTotal = existingSession.price * existingSession.qty;
-        existingSession.qty += taxedItem.qty;
-        existingSession.price = (prevTotal + totalValue) / existingSession.qty;
+    applyPricing(snapshot: PricingSnapshot) {
+      if (!snapshot || (this.pricing && snapshot.revision < this.pricing.revision)) return;
+      this.pricing = snapshot;
+      const revalue = (items: LootItem[]) => {
+        let delta = 0;
+        for (const item of items) {
+          if (item.season_id !== snapshot.season_id) continue;
+          const valuation = snapshot.prices[item.item_id] ?? unknownPrice();
+          const previous = item.accountedValue ?? Math.round(item.price * item.qty * 100) / 100;
+          item.price = (valuation.value ?? 0) * (item.valuationWeight ?? item.qty) / item.qty;
+          item.valuation = { ...valuation };
+          item.accountedValue = Math.round(item.price * item.qty * 100) / 100;
+          delta += item.accountedValue - previous;
+        }
+        return delta;
+      };
+      const sessionDelta = revalue(this.sessionDrops);
+      const mapDelta = revalue(this.currentMapDrops);
+      this.totalProfit = Math.round((this.totalProfit + sessionDelta) * 100) / 100;
+      this.currentMapProfit = Math.round((this.currentMapProfit + mapDelta) * 100) / 100;
+      if (this.inventoryItems.length) {
+        let inventoryDelta = 0;
+        for (const item of this.inventoryItems) {
+          if (item.season_id !== snapshot.season_id) continue;
+          const valuation = snapshot.prices[item.item_id] ?? unknownPrice();
+          inventoryDelta += ((valuation.value ?? 0) - item.price) * item.qty;
+          item.price = valuation.value ?? 0;
+          item.valuation = { ...valuation };
+        }
+        this.inventoryValue = Math.round((this.inventoryValue + inventoryDelta) * 100) / 100;
       } else {
-        this.sessionDrops.push(taxedItem);
+        this.inventoryValue = Math.round((this.inventoryValue + sessionDelta) * 100) / 100;
       }
-
-      const existingMap = this.currentMapDrops.find(d => d.item_id === taxedItem.item_id);
-      if (existingMap) {
-        const prevTotal = existingMap.price * existingMap.qty;
-        existingMap.qty += taxedItem.qty;
-        existingMap.price = (prevTotal + totalValue) / existingMap.qty;
-      } else {
-        this.currentMapDrops.push(taxedItem);
-      }
-
-      this.latestDrop = taxedItem;
+      // latestDrop is deliberately untouched: valuations are not new pickups.
     },
 
     addExpense(expense: ExpenseItem) {

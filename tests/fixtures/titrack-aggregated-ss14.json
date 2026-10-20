@@ -1,0 +1,4 @@
+[
+  {"config_base_id":123456,"season_id":1601,"price_fe_median":12.5,"price_fe_p10":10,"price_fe_p90":15,"submission_count":10,"unique_devices":4,"updated_at":"2026-10-20T08:00:00Z"},
+  {"config_base_id":654321,"season_id":1601,"price_fe_median":0,"price_fe_p10":0,"price_fe_p90":0,"submission_count":3,"unique_devices":3,"updated_at":"2026-10-20T08:00:00Z"}
+]

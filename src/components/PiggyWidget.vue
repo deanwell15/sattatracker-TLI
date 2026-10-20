@@ -132,7 +132,7 @@ function triggerCoin() {
 watch(
   () => store.latestDrop,
   (drop) => {
-    if (drop && drop.price * drop.qty > 0) {
+    if (drop && store.shouldAnimateDrop(drop)) {
       onDrop(drop.price * drop.qty);
     }
   }

@@ -118,7 +118,7 @@
             <div v-else class="flex flex-col gap-[4px]">
               <div
                 v-for="item in filteredPrices"
-                :key="item.item_id"
+                :key="`${item.season_id ?? 0}:${item.item_id}`"
                 class="flex items-center gap-3 px-3 py-[7px] rounded-xl"
                 style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);"
               >
@@ -135,7 +135,7 @@
                   <div class="text-[13px] font-semibold truncate" style="color: rgba(255,255,255,0.85);">{{ item.item_name }}</div>
                   <div class="text-[10px]" style="color: rgba(255,255,255,0.2);">ID: {{ item.item_id }}</div>
                 </div>
-                <div class="text-[13px] font-bold shrink-0" style="color: #fbbf24;">{{ item.price.toFixed(2) }} FE</div>
+                <div class="text-[13px] font-bold shrink-0" style="color: #fbbf24;">{{ priceLabel(item, 1, 2) }} FE</div>
               </div>
             </div>
           </template>
@@ -156,7 +156,7 @@
             <div class="flex flex-col gap-[4px]">
               <div
                 v-for="item in displayData"
-                :key="item.item_id"
+                :key="`${item.season_id ?? 0}:${item.item_id}`"
                 class="flex items-center gap-3 px-3 py-[7px] rounded-xl cursor-pointer transition-colors duration-150"
                 style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);"
                 @mouseenter="($event.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'"
@@ -183,11 +183,11 @@
 
                 <div v-if="store.isBlocked(item.item_id)" class="text-[9px] px-2 py-[2px] rounded-full font-bold" style="background: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.25);">BLOCKED</div>
 
-                <div class="text-right shrink-0">
+                <div :title="priceDetails(item)" class="text-right shrink-0">
                   <div class="text-[13px] font-bold" style="color: #fbbf24;">
-                    {{ store.isBlocked(item.item_id) ? '—' : (item.price * item.qty).toFixed(1) + ' FE' }}
+                    {{ store.isBlocked(item.item_id) ? '—' : priceLabel(item, item.qty) + ' FE' }}
                   </div>
-                  <div class="text-[10px]" style="color: rgba(255,255,255,0.3);">x{{ item.qty }} @ {{ item.price.toFixed(2) }}</div>
+                  <div class="text-[10px]" style="color: rgba(255,255,255,0.3);">x{{ item.qty }} @ {{ priceLabel(item, 1, 2) }}</div>
                 </div>
               </div>
             </div>
@@ -197,7 +197,7 @@
             <div class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));">
               <div
                 v-for="item in displayData"
-                :key="item.item_id"
+                :key="`${item.season_id ?? 0}:${item.item_id}`"
                 class="flex flex-col items-center gap-[6px] p-3 rounded-xl cursor-pointer transition-colors duration-150 text-center"
                 style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);"
                 @mouseenter="($event.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'"
@@ -215,7 +215,7 @@
                 </div>
                 <div class="text-[10px] font-semibold leading-tight w-full truncate" style="color: rgba(255,255,255,0.7);">{{ item.item_name }}</div>
                 <div class="text-[11px] font-bold" style="color: #fbbf24;">
-                  {{ store.isBlocked(item.item_id) ? '—' : (item.price * item.qty).toFixed(0) + ' FE' }}
+                  {{ store.isBlocked(item.item_id) ? '—' : priceLabel(item, item.qty, 0) + ' FE' }}
                 </div>
                 <div class="text-[10px]" style="color: rgba(255,255,255,0.3);">x{{ item.qty }}</div>
               </div>
@@ -270,6 +270,7 @@ import AssetImage from './AssetImage.vue';
 import { ref, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useTrackerStore, type LootItem } from '../stores/trackerStore';
+import { priceLabel, priceDetails, type PriceQuote } from '../utils/prices';
 import { getIcon } from '../utils/assets';
 
 defineProps<{ isOpen: boolean }>();
@@ -282,7 +283,7 @@ const sortBy    = ref<'price' | 'count'>('price');
 const viewMode  = ref<'list' | 'grid'>('list');
 const priceSearch = ref('');
 
-interface PriceEntry { item_id: string; item_name: string; price: number; }
+interface PriceEntry { item_id: string; item_name: string; price: number; valuation?: PriceQuote; season_id?: number; }
 const allPrices = ref<PriceEntry[]>([]);
 
 async function loadPrices() {
@@ -292,6 +293,8 @@ async function loadPrices() {
     console.error('Failed to load prices', e);
   }
 }
+
+watch(() => store.pricing?.revision, () => { if (activeTab.value === 'prices') void loadPrices(); });
 
 watch(activeTab, (tab) => {
   if (tab === 'prices') loadPrices();
@@ -321,8 +324,9 @@ const currentTabLabel = computed(() => tabs.find(t => t.id === activeTab.value)?
 function aggregateDrops(drops: LootItem[]) {
   const map = new Map<string, LootItem>();
   for (const d of drops) {
-    if (!map.has(d.item_id)) map.set(d.item_id, { ...d, qty: 0 });
-    map.get(d.item_id)!.qty += d.qty;
+    const key = `${d.season_id}:${d.item_id}`;
+    if (!map.has(key)) map.set(key, { ...d, qty: 0 });
+    map.get(key)!.qty += d.qty;
   }
   return Array.from(map.values());
 }
@@ -337,6 +341,7 @@ const blockedData = computed((): LootItem[] =>
       item_name: match?.item_name ?? `Item ${id}`,
       qty:       match?.qty ?? 0,
       price:     match?.price ?? 0,
+      valuation: match?.valuation,
       timestamp: 0,
     };
   })
@@ -348,6 +353,8 @@ const inventoryData = computed((): LootItem[] =>
     item_name: i.item_name,
     qty:       i.qty,
     price:     i.price,
+    valuation: i.valuation,
+    season_id: i.season_id,
     timestamp: 0,
   }))
 );

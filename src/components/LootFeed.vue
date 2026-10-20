@@ -30,7 +30,7 @@
         <TransitionGroup name="loot" tag="div" class="flex flex-col gap-[3px]">
           <div
             v-for="item in groupedDrops"
-            :key="item.item_id"
+            :key="`${item.season_id}:${item.item_id}`"
             class="flex items-center justify-between rounded px-[5px] py-[2px]"
             style="
               background-color: rgba(60, 60, 60, 0.6);
@@ -49,8 +49,8 @@
               {{ item.item_name }}
             </div>
 
-            <div class="shrink-0 font-bold text-[13px] whitespace-nowrap" style="color: #00FF00;">
-              x{{ item.qty }}&nbsp;&nbsp;[{{ item.total.toFixed(1) }}]
+            <div :title="priceDetails(item)" class="shrink-0 font-bold text-[13px] whitespace-nowrap" style="color: #00FF00;">
+              x{{ item.qty }}&nbsp;&nbsp;[{{ priceLabel(item, item.qty) }}]
             </div>
           </div>
         </TransitionGroup>
@@ -63,6 +63,7 @@
 import AssetImage from './AssetImage.vue';
 import { computed } from 'vue';
 import { useTrackerStore } from '../stores/trackerStore';
+import { priceLabel, priceDetails } from '../utils/prices';
 import { getIcon } from '../utils/assets';
 import DraggableWidget from './DraggableWidget.vue';
 
@@ -81,20 +82,8 @@ const totalValue = computed(() =>
 const groupedDrops = computed(() => {
   const rawDrops = props.mode === 'map' ? store.currentMapDrops : store.sessionDrops;
 
-  const map = new Map<string, { item_id: string; item_name: string; qty: number; total: number }>();
-  for (const d of rawDrops) {
-    const value = d.price * d.qty;
-    const existing = map.get(d.item_id);
-    if (existing) {
-      existing.qty   += d.qty;
-      existing.total += value;
-    } else {
-      map.set(d.item_id, { item_id: d.item_id, item_name: d.item_name, qty: d.qty, total: value });
-    }
-  }
-
-  return [...map.values()]
-    .sort((a, b) => b.total - a.total)
+  return rawDrops.filter(item => store.passesLootFilter(item))
+    .slice().sort((a, b) => b.price * b.qty - a.price * a.qty)
     .slice(0, 50);
 });
 </script>

@@ -152,6 +152,7 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { useTrackerStore } from './stores/trackerStore';
 import { useThemeStore } from './stores/themeStore';
+import type { PricingSnapshot } from './utils/prices';
 import { updateCursor } from './utils/cursor';
 
 import BuilderPanel         from './components/BuilderPanel.vue';
@@ -201,6 +202,7 @@ const widgetOnlyId = (() => {
 })();
 
 let unlistenEditMode: (() => void) | null = null;
+let unlistenPrices: (() => void) | null = null;
 let unlistenGame:     (() => void) | null = null;
 let timerInterval:    ReturnType<typeof setInterval> | null = null;
 
@@ -249,6 +251,8 @@ onMounted(async () => {
           item_name: e.item_name,
           qty:       e.qty,
           price:     e.price,
+          valuation: e.valuation,
+          season_id: e.season_id,
           timestamp: Date.now(),
         });
         break;
@@ -278,7 +282,7 @@ onMounted(async () => {
         break;
       case 'InventoryRefreshed':
         if (e.items && e.items.length > 0) {
-          store.inventoryItems = e.items;
+          store.inventoryItems = e.items.map((item: any) => ({ ...item, season_id: item.season_id ?? store.pricing?.season_id ?? 1601 }));
           store.checkLowStock(e.items);
         }
         if (e.value > 0) {
@@ -289,6 +293,9 @@ onMounted(async () => {
     }
   });
 
+  unlistenPrices = await listen<PricingSnapshot>('price_snapshot', event => store.applyPricing(event.payload));
+  // Snapshot closes the startup/listener race; revisions reject older responses.
+  void invoke<PricingSnapshot>('get_pricing_snapshot').then(snapshot => { if (snapshot) store.applyPricing(snapshot); }).catch(console.error);
   store.loadConfigFromStorage();
   themeStore.loadFromStorage();
 
@@ -308,6 +315,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (unlistenEditMode)      unlistenEditMode();
   if (unlistenGame)          unlistenGame();
+  if (unlistenPrices)        unlistenPrices();
   if (timerInterval)         clearInterval(timerInterval);
   if (clickThroughInterval)  clearInterval(clickThroughInterval);
   window.removeEventListener('keydown', keydownHandler);

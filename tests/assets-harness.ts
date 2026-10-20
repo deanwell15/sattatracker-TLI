@@ -4,6 +4,9 @@ import { mockIPC, mockWindows, mockConvertFileSrc } from '@tauri-apps/api/mocks'
 import { emit } from '@tauri-apps/api/event';
 import AssetImage from '../src/components/AssetImage.vue';
 import PiggyWidget from '../src/components/PiggyWidget.vue';
+import ItemsHistory from '../src/components/ItemsHistory.vue';
+import PricingSettings from '../src/components/PricingSettings.vue';
+import type { PricingSnapshot, PriceQuote } from '../src/utils/prices';
 import { getIcon, getAnim } from '../src/utils/assets';
 import { useTrackerStore } from '../src/stores/trackerStore';
 import '../src/style.css';
@@ -21,8 +24,15 @@ internals.convertFileSrc = (file, protocol) => {
   if (protocol !== 'deanfinite-icon' || !/^(?:[0-9]{1,12}|fe)\.png$/.test(file)) throw new Error('Unsafe icon protocol request');
   return `${location.origin}/__icons/${file}`;
 };
-mockIPC(cmd => {
+let mockedPricing: PricingSnapshot | null = null;
+mockIPC((cmd, payload) => {
   commands.push(cmd);
+  if (cmd === 'get_pricing_snapshot') return mockedPricing;
+  if (cmd === 'set_price_source') return { ...mockedPricing!, revision: mockedPricing!.revision + 1, source: 'automatic', connection: 'blocked', error: 'TITrack access not approved' };
+  if (cmd === 'import_price_json') {
+    if ((payload as {json:string}).json !== '{"fixture":true}') throw new Error('Invalid price JSON fixture');
+    return { ...mockedPricing!, revision: mockedPricing!.revision + 2 };
+  }
   if (cmd === 'get_cursor_position') return [0, 0];
   if (cmd === 'plugin:app|version') return '1.2.11';
   return null;
@@ -53,11 +63,48 @@ try {
     assert(!document.querySelector('#app')!.textContent!.includes('Profit / Hr'), 'Detached route rendered main widgets');
   }
   // Real App event handler/store/row rendering; tax is bypassed by existing FE ID.
-  await emit('game_event', { type: 'LootDrop', item_id: '100300', item_name: 'Offline fixture', qty: 2, price: 10 });
+  await emit('game_event', { type: 'LootDrop', item_id: '100300', item_name: 'Offline fixture', qty: 2, price: 1 });
   await nextTick();
   const text = document.querySelector('#app')!.textContent!;
-  assert(text.includes('Offline fixture') && text.includes('x2') && text.includes('[20.0]'), 'Item text or values lost');
-  assert(text.includes('Session: 20.0 FE'), 'Existing event/statistics path failed');
+  assert(text.includes('Offline fixture') && text.includes('x2') && text.includes('[2.0]'), 'Item text or values lost');
+  assert(text.includes('Session: 2.0 FE'), 'Existing event/statistics path failed');
+
+  // Real Rust event shape -> App handler -> Pinia -> LootFeed / history / settings.
+  store.minPriceThreshold = 100;
+  const unpriced: PriceQuote = { value: null, status: 'unknown', source: null, updated_at: null, received_at: null };
+  const priced: PriceQuote = { value: 12.5, status: 'known', source: 'test_fixture', updated_at: '2026-10-20T08:00:00Z', received_at: '2026-10-20T08:00:00Z' };
+  await emit('game_event', { type: 'LootDrop', item_id: '123456', item_name: 'Unpriced fixture', qty: 3, price: 0, valuation: unpriced, season_id: 1601 });
+  await emit('game_event', { type: 'LootDrop', item_id: '123456', item_name: 'Unpriced fixture', qty: 1, price: 0, valuation: unpriced, season_id: 1601 });
+  await nextTick();
+  assert(store.sessionLootCount === 6 && store.sessionDrops.find(i => i.item_id === '123456')?.qty === 4 && store.currentMapDrops.find(i => i.item_id === '123456')?.qty === 4, 'Unpriced loot lost or double-counted');
+  assert(!document.querySelector('#app')!.textContent!.includes('Unpriced fixture'), 'Feed ignored positive display filter');
+  store.minPriceThreshold = 0;
+  await nextTick();
+  assert(document.querySelector('#app')!.textContent!.includes('Unpriced fixture') && document.querySelector('#app')!.textContent!.includes('[—]'), 'Threshold did not reveal retained unpriced loot');
+  const historyRoot = document.createElement('div'); document.body.append(historyRoot);
+  const historyApp = createApp(ItemsHistory, {isOpen: true}).use(pinia); historyApp.mount(historyRoot);
+  assert(historyRoot.textContent!.includes('Unpriced fixture') && historyRoot.textContent!.includes('x4 @ —'), 'History lost unpriced quantity/status');
+  historyApp.unmount(); historyRoot.remove();
+  const lastDrop = store.latestDrop;
+  mockedPricing = {revision: 10, season_id: 1601, source: 'local_json', connection: 'offline_local', last_success_at: null, error: null, available_count: 2, refresh_seconds: 300, titrack_enabled: false,
+    prices: {'123456': priced, '100300': {...priced, value: 1, source: 'base_currency', updated_at: null}}};
+  await emit('price_snapshot', mockedPricing); await nextTick();
+  assert(store.totalProfit === 52 && store.currentMapProfit === 52 && store.sessionLootCount === 6, 'Price snapshot did not revalue existing quantities');
+  assert(store.latestDrop === lastDrop, 'Price snapshot replayed drop/effects');
+  assert(document.querySelector('#app')!.textContent!.includes('[50.0]'), 'Updated estimate did not render');
+  await emit('game_event', {type:'MapStart', level_type:3, level_id:456}); await nextTick();
+  assert(store.currentMapDrops.length === 0 && store.sessionLootCount === 6, 'Map change lost session history');
+  const settingsRoot = document.createElement('div'); document.body.append(settingsRoot);
+  const settingsApp = createApp(PricingSettings).use(pinia); settingsApp.mount(settingsRoot);
+  const select = settingsRoot.querySelector('select')!; select.value = 'automatic'; select.dispatchEvent(new Event('change'));
+  await eventually(() => settingsRoot.textContent!.includes('TITrack access not approved'), 'Unavailable TITrack status not shown');
+  const input = settingsRoot.querySelector<HTMLInputElement>('input[type=file]')!;
+  for (const [json, message] of [['{bad', 'Invalid price JSON fixture'], ['{"fixture":true}', 'Local prices imported.']] as const) {
+    const files = new DataTransfer(); files.items.add(new File([json], 'prices.json', {type:'application/json'})); input.files = files.files; input.dispatchEvent(new Event('change'));
+    await eventually(() => settingsRoot.textContent!.includes(message), `Import UI failed: ${message}`);
+    assert(store.sessionLootCount === 6 && store.totalProfit === 52, 'Import changed quantity or destroyed prior valuation');
+  }
+  settingsApp.unmount(); settingsRoot.remove();
 
   const probe = ref('/__missing_asset__.png');
   const probes = createApp({ render: () => h('div', [

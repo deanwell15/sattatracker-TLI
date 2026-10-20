@@ -490,7 +490,7 @@ function spawnConfetti() {
 watch(() => store.latestDrop, (drop: LootItem | null) => {
   if (!drop) return;
   const value = drop.price * drop.qty;
-  if (value < store.minPriceThreshold) return;
+  if (!store.shouldAnimateDrop(drop)) return;
 
   if (store.dropFxStyle !== 'none') triggerPulse(drop);
 

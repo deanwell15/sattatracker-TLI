@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/deanwell15/sattatracker-TLI/local-prices-v1",
+  "title": "Deanfinite local prices v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "season_id", "currency", "source", "updated_at", "prices"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "season_id": {"type": "integer", "minimum": 1, "maximum": 100000},
+    "currency": {"const": "FE"},
+    "source": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "prices": {
+      "type": "object", "maxProperties": 50000,
+      "propertyNames": {"pattern": "^[1-9][0-9]{0,11}$"},
+      "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1000000000},
+      "properties": {"100300": {"const": 1}}
+    }
+  }
+}

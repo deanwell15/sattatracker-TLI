@@ -34,6 +34,7 @@
       <div class="overflow-y-auto custom-scroll flex-1 px-5 py-4 flex flex-col gap-5">
 
         <template v-if="activeTab === 'filter'">
+          <PricingSettings />
 
           <section>
             <div class="section-title">Loot Filter</div>
@@ -335,6 +336,7 @@ import { useTrackerStore } from '../stores/trackerStore';
 import { useThemeStore, PREDEFINED_THEMES, type Theme } from '../stores/themeStore';
 import { invoke } from '@tauri-apps/api/core';
 import ColorRow from './ColorRow.vue';
+import PricingSettings from './PricingSettings.vue';
 
 const props = defineProps<{ isOpen: boolean; showDebugExternal: boolean }>();
 const emit  = defineEmits<{

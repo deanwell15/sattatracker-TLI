@@ -13,27 +13,16 @@ use crate::pricing::PricingManager;
 
 const SORT_DEBOUNCE_MS: u64 = 1500;
 
-async fn find_season_id(log_path: &PathBuf) -> u32 {
-    let file = match tokio::fs::File::open(log_path).await {
-        Ok(f) => f,
-        Err(_) => return 1501,
-    };
-    let reader = BufReader::new(file);
-    let mut lines_iter = reader.lines();
-    while let Ok(Some(line)) = lines_iter.next_line().await {
-        if line.contains("SeasonId") {
-            if let Some(start) = line.find('[') {
-                if let Some(end) = line.find(']') {
-                    if let Ok(id) = line[start + 1..end].trim().parse::<u32>() {
-                        println!("[tailer] Detected season_id: {}", id);
-                        return id;
-                    }
-                }
-            }
+async fn find_season_id(log_path: &PathBuf) -> Option<u32> {
+    let file = tokio::fs::File::open(log_path).await.ok()?;
+    let mut lines = BufReader::new(file).lines();
+    let mut latest = None;
+    while let Ok(Some(line)) = lines.next_line().await {
+        if let Some(season) = crate::season::from_log_line(&line) {
+            latest = Some(season);
         }
     }
-    println!("[tailer] SeasonId not found in log, using default 1501");
-    1501
+    latest
 }
 
 async fn count_lines(log_path: &PathBuf) -> u64 {
@@ -82,21 +71,18 @@ async fn replay_existing_log(
 pub async fn start_tailing(
     app: AppHandle,
     log_path: PathBuf,
-    cache_path: PathBuf,
+    pricing: std::sync::Arc<PricingManager>,
     mut settings: watch::Receiver<AppSettings>,
 ) {
     let mut parser = LogParser::new();
-    let season_id = find_season_id(&log_path).await;
-
-    let pricing = PricingManager::new(season_id, cache_path);
+    if let Some(season) = find_season_id(&log_path).await {
+        let _ = pricing.set_season(season);
+        let _ = app.emit("price_snapshot", pricing.snapshot());
+    }
     let mut fsm = GameStateMachine::new(settings.borrow().clone());
 
     let total_lines = count_lines(&log_path).await;
     let _ = app.emit("game_event", GameEvent::LoadingStart { total_lines });
-
-    pricing.load_disk_cache().await;
-
-    pricing.refresh_prices().await;
 
     replay_existing_log(&log_path, &mut parser, &mut fsm, &pricing).await;
 
@@ -116,16 +102,8 @@ pub async fn start_tailing(
     tokio::pin!(sort_timer);
     let mut sort_pending = false;
 
-    let price_refresh_interval = Duration::from_secs(10 * 60);
-    let mut price_refresh_timer = time::interval(price_refresh_interval);
-    price_refresh_timer.tick().await;
-
     loop {
         tokio::select! {
-            _ = price_refresh_timer.tick() => {
-                pricing.refresh_prices().await;
-            }
-
             () = &mut sort_timer, if sort_pending => {
                 sort_pending = false;
                 sort_timer.as_mut().reset(TokioInstant::now() + Duration::from_secs(u32::MAX as u64));
@@ -134,7 +112,7 @@ pub async fn start_tailing(
                 let mut total_value = 0.0f64;
                 let mut snapshot: Vec<crate::models::InventoryItem> = Vec::new();
                 for (item_id, qty) in &raw_items {
-                    let price     = pricing.get_price(item_id).await;
+                    let price     = pricing.get_price_sync(item_id);
                     let item_name = crate::db::DbManager::get_item_name(item_id);
                     total_value  += price * (*qty as f64);
                     snapshot.push(crate::models::InventoryItem {
@@ -142,6 +120,8 @@ pub async fn start_tailing(
                         item_name,
                         qty:       *qty,
                         price,
+                        valuation: pricing.get_quote(item_id),
+                        season_id: pricing.season_id(),
                     });
                 }
                 println!("[tailer] Snapshot: total_value={:.2}", total_value);
@@ -156,6 +136,13 @@ pub async fn start_tailing(
                 }
 
                 let raw_line = line.line();
+                if let Some(season) = crate::season::from_log_line(raw_line) {
+                    let previous = pricing.snapshot().season_id;
+                    if previous != season {
+                        let _ = pricing.set_season(season);
+                        let _ = app.emit("price_snapshot", pricing.snapshot());
+                    }
+                }
 
                 if raw_line.contains("ProtoName=ResetItemsLayout") && raw_line.contains(" start") {
                     let raw_items = fsm.bag.get_all_main_inventory_items();
@@ -163,7 +150,7 @@ pub async fn start_tailing(
                         let mut total_value = 0.0f64;
                         let mut snapshot: Vec<crate::models::InventoryItem> = Vec::new();
                         for (item_id, qty) in &raw_items {
-                            let price     = pricing.get_price(item_id).await;
+                            let price     = pricing.get_price_sync(item_id);
                             let item_name = crate::db::DbManager::get_item_name(item_id);
                             total_value  += price * (*qty as f64);
                             snapshot.push(crate::models::InventoryItem {
@@ -171,6 +158,8 @@ pub async fn start_tailing(
                                 item_name,
                                 qty:       *qty,
                                 price,
+                        valuation: pricing.get_quote(item_id),
+                        season_id: pricing.season_id(),
                             });
                         }
                         println!("[tailer] Pre-sort snapshot: {} items, {:.2} FE", snapshot.len(), total_value);
@@ -188,13 +177,8 @@ pub async fn start_tailing(
                     let mut game_events = fsm.process(parsed_event, &pricing);
 
                     for ev in &mut game_events {
-                        if let GameEvent::LootDrop { item_id, price, .. } = ev {
-                            if *price == 0.0 {
-                                *price = pricing.get_price(item_id).await;
-                            }
-                        }
                         if let GameEvent::Expense { item_id, total, qty, .. } = ev {
-                            let unit_price = pricing.get_price(item_id).await;
+                            let unit_price = pricing.get_price_sync(item_id);
                             if unit_price > 0.0 {
                                 *total = unit_price * (*qty as f64);
                             }

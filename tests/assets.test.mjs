@@ -26,7 +26,7 @@ for (const root of ['src', 'src-tauri/src']) {
 }
 for (const path of paths) {
   if (!existsSync(path) || !/\.(vue|ts|rs|html)$/.test(path)) continue;
-  assert(!/sattatrapy\/sattatrackerUpdate|assets\.zip|public_assets|assets_version\.json|check_assets_update|download_assets|get_assets_path|fonts\.googleapis|fonts\.gstatic/.test(await readFile(path, 'utf8')), `Legacy asset dependency: ${path}`);
+  assert(!/sattatrapy\/sattatrackerUpdate|assets\.zip|public_assets|assets_version\.json|check_assets_update|download_assets|get_assets_path|fonts\.googleapis|fonts\.gstatic|115\.231\.176\.101|TLI_PRICE_API_URL/.test(await readFile(path, 'utf8')), `Legacy asset dependency: ${path}`);
 }
 const config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'));
 assert.equal(config.app.security.assetProtocol.enable, false);
