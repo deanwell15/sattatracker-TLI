@@ -5,11 +5,16 @@ mod icon_resource;
 mod models;
 mod parser;
 mod pricing;
+#[cfg(test)]
+mod pricing_integration_tests;
+mod season;
 mod settings;
 mod tailer;
 mod utils;
 
 use models::AppSettings;
+use pricing::{PricingManager, PricingSnapshot, SourceMode};
+use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 use tokio::sync::watch;
@@ -63,19 +68,23 @@ struct PriceEntry {
     item_id: String,
     item_name: String,
     price: f64,
+    valuation: pricing::PriceQuote,
 }
 
 #[tauri::command]
-fn get_all_prices() -> Vec<PriceEntry> {
-    let mut entries: Vec<PriceEntry> = crate::pricing::get_all_cached_prices()
+fn get_all_prices(state: State<'_, Arc<PricingManager>>) -> Vec<PriceEntry> {
+    let mut entries: Vec<PriceEntry> = state
+        .snapshot()
+        .prices
         .into_iter()
-        .filter(|(_, p)| *p > 0.0)
-        .map(|(id, price)| {
+        .map(|(id, valuation)| {
+            let price = valuation.value.unwrap_or(0.0);
             let item_name = crate::db::DbManager::get_item_name(&id);
             PriceEntry {
                 item_id: id,
                 item_name,
                 price,
+                valuation,
             }
         })
         .collect();
@@ -85,6 +94,49 @@ fn get_all_prices() -> Vec<PriceEntry> {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     entries
+}
+
+#[tauri::command]
+fn get_pricing_snapshot(state: State<'_, Arc<PricingManager>>) -> PricingSnapshot {
+    state.snapshot()
+}
+
+#[tauri::command]
+async fn import_price_json(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<PricingManager>>,
+    json: String,
+) -> Result<PricingSnapshot, String> {
+    if json.len() > 4 * 1024 * 1024 {
+        return Err("Price JSON exceeds 4 MiB".into());
+    }
+    let manager = state.inner().clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        manager.import_json(&json)?;
+        Ok::<_, String>(manager.snapshot())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let _ = app.emit("price_snapshot", &snapshot);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+async fn set_price_source(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<PricingManager>>,
+    source: SourceMode,
+) -> Result<PricingSnapshot, String> {
+    let manager = state.inner().clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        manager.set_source(source)?;
+        Ok::<_, String>(manager.snapshot())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let _ = app.emit("price_snapshot", &snapshot);
+    app.state::<Arc<tokio::sync::Notify>>().notify_one();
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -154,8 +206,32 @@ pub fn run() {
                 AppSettings::default()
             });
             let (settings_tx, settings_rx) = watch::channel(initial_settings);
-            app.manage(SettingsState { sender: settings_tx, path: config_path });
-            let price_cache_path = local_data_dir.join("prices_cache.json");
+            app.manage(SettingsState {
+                sender: settings_tx,
+                path: config_path,
+            });
+            // Target league is explicit. A detected log season replaces it; old
+            // unscoped prices_cache.json is deliberately never imported.
+            let pricing = Arc::new(PricingManager::new(1601, local_data_dir.join("prices")));
+            app.manage(pricing.clone());
+            let pricing_wake = Arc::new(tokio::sync::Notify::new());
+            app.manage(pricing_wake.clone());
+            let price_app = app.handle().clone();
+            let background_pricing = pricing.clone();
+            task::spawn(async move {
+                let initial = background_pricing.clone();
+                let _ = tokio::task::spawn_blocking(move || initial.initialize()).await;
+                let _ = price_app.emit("price_snapshot", background_pricing.snapshot());
+                loop {
+                    let manager = background_pricing.clone();
+                    let _ = tokio::task::spawn_blocking(move || manager.refresh()).await;
+                    let _ = price_app.emit("price_snapshot", background_pricing.snapshot());
+                    tokio::select! {
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(background_pricing.next_refresh_delay())) => {},
+                        _ = pricing_wake.notified() => {},
+                    }
+                }
+            });
 
             use std::str::FromStr;
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
@@ -211,7 +287,7 @@ pub fn run() {
                     Some(log_path) => {
                         let _ =
                             app_handle.emit("log_status", format!("Watching log: {:?}", log_path));
-                        tailer::start_tailing(app_handle, log_path, price_cache_path, settings_rx).await;
+                        tailer::start_tailing(app_handle, log_path, pricing, settings_rx).await;
                     }
                     None => {
                         let _ =
@@ -231,6 +307,9 @@ pub fn run() {
             get_log_path,
             get_cursor_position,
             get_all_prices,
+            get_pricing_snapshot,
+            import_price_json,
+            set_price_source,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

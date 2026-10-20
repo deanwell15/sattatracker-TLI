@@ -8,7 +8,8 @@
     "build": "vue-tsc --noEmit && vite build && node tools/check-frontend-assets.mjs",
     "preview": "vite preview",
     "test:assets": "vue-tsc --noEmit -p tests/tsconfig.json && node --test tests/packaged-exe.test.mjs && node tests/assets.test.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:pricing": "node tests/pricing.test.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.2",

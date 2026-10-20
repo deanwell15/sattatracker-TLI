@@ -636,7 +636,7 @@ function loop() {
 }
 
 watch(() => store.latestDrop, (drop) => {
-  if (!drop) return;
+  if (!drop || !store.shouldAnimateDrop(drop)) return;
   if (!physicsStyles.has(store.extraFxStyle)) return;
   spawnEffect(drop.price, drop.item_name);
   startLoop();

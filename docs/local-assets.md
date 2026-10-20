@@ -111,7 +111,7 @@ standalone/
 
 Не копировать один EXE без icons. Полностью автономный единый EXE не заявляется.
 WebView2, существующие elevated права и AppConfig/LocalAppData также требуются;
-прежний ценовой API остаётся. Для offline-графики не нужен download, но установка
+цены теперь используют локальный JSON/кэш, Automatic TITrack с HTTPS и offline cache. Для offline-графики не нужен download, но установка
 самого WebView2 и свежие цены — отдельные вопросы.
 
 CI проверяет hashes всех resource-копий, распаковывает MSI CAB и NSIS через

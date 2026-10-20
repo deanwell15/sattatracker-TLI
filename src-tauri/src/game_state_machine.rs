@@ -158,9 +158,6 @@ impl GameStateMachine {
                 slot_id,
                 qty,
             } => self.handle_item_add(&item_id, page_id, slot_id, qty, pricing),
-            ParsedEvent::PriceUpdate { item_id, price } => {
-                vec![GameEvent::PriceUpdated { item_id, price }]
-            }
         }
     }
 
@@ -315,6 +312,8 @@ impl GameStateMachine {
                 item_name,
                 qty,
                 price,
+                valuation: pricing.get_quote(item_id),
+                season_id: pricing.season_id(),
             }];
         }
 
@@ -326,6 +325,8 @@ impl GameStateMachine {
                 item_name,
                 qty,
                 price,
+                valuation: pricing.get_quote(item_id),
+                season_id: pricing.season_id(),
             }];
         }
         vec![]
@@ -372,6 +373,8 @@ impl GameStateMachine {
                     item_name,
                     qty,
                     price,
+                    valuation: pricing.get_quote(item_id),
+                    season_id: pricing.season_id(),
                 }];
             }
             EventContext::Pickup => {
@@ -385,6 +388,8 @@ impl GameStateMachine {
                     item_name,
                     qty,
                     price,
+                    valuation: pricing.get_quote(item_id),
+                    season_id: pricing.season_id(),
                 }];
             }
             _ => vec![],

@@ -17,16 +17,14 @@ pub enum GameEvent {
         item_name: String,
         qty: u32,
         price: f64,
+        valuation: crate::pricing::PriceQuote,
+        season_id: u32,
     },
     Expense {
         item_id: String,
         item_name: String,
         qty: u32,
         total: f64,
-    },
-    PriceUpdated {
-        item_id: String,
-        price: f64,
     },
     LoadingStart {
         total_lines: u64,
@@ -45,6 +43,8 @@ pub struct InventoryItem {
     pub item_name: String,
     pub qty: u32,
     pub price: f64,
+    pub valuation: crate::pricing::PriceQuote,
+    pub season_id: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -88,10 +88,6 @@ pub enum ParsedEvent {
     UiPageChange {
         page_name: String,
         state: String,
-    },
-    PriceUpdate {
-        item_id: String,
-        price: f64,
     },
 }
 

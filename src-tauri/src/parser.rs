@@ -14,10 +14,6 @@ pub struct LogParser {
     proto_end_regex: Regex,
 
     ui_page_regex: Regex,
-
-    xchg_id_regex: Regex,
-    xchg_price_regex: Regex,
-    pending_xchg_item: Option<String>,
 }
 
 impl LogParser {
@@ -36,10 +32,7 @@ impl LogParser {
 
             ui_page_regex:     Regex::new(r"TipMsgShowMgr@DispatchPageRunChange PageName = (\w+) , PageRunState = (\w+)").unwrap(),
 
-            xchg_id_regex:     Regex::new(r"\+refer\s*\[(\d+)\]").unwrap(),
-            xchg_price_regex:  Regex::new(r"\+(?:unitPrices\+)?\d+\s*\[([0-9.]+)\]").unwrap(),
 
-            pending_xchg_item: None,
         }
     }
 
@@ -141,23 +134,6 @@ impl LogParser {
                 let state = caps[2].to_string();
                 if state == "Run" {
                     return Some(ParsedEvent::UiPageChange { page_name, state });
-                }
-            }
-        }
-
-        if line.contains("XchgSearchPrice")
-            || line.contains("+refer")
-            || line.contains("unitPrices")
-        {
-            if let Some(id_caps) = self.xchg_id_regex.captures(line) {
-                self.pending_xchg_item = Some(id_caps[1].to_string());
-            }
-            if let Some(price_caps) = self.xchg_price_regex.captures(line) {
-                if let Ok(price) = price_caps[1].parse::<f64>() {
-                    if let Some(item_id) = self.pending_xchg_item.take() {
-                        crate::pricing::PricingManager::update_local_price(&item_id, price);
-                        return Some(ParsedEvent::PriceUpdate { item_id, price });
-                    }
                 }
             }
         }
