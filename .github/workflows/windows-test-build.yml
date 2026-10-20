@@ -46,6 +46,10 @@ jobs:
       - name: Test price valuations and lossless loot accounting
         run: npm run test:pricing
 
+      # Controlled fixtures only: never makes a live Supabase request in CI.
+      - name: Test read-only TITrack diagnostic without network
+        run: python tools/check-titrack-api.py --self-test
+
       # Uses Chrome already installed on windows-2022. No browser download.
       - name: Test offline graphics and widget rendering
         run: npm run test:assets
