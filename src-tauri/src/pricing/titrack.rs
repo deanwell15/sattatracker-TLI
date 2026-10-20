@@ -262,7 +262,8 @@ fn fetch_table(
             if !(200..300).contains(&response.status) {
                 let mut error = ProviderError::new(&format!("TITrack HTTP {}", response.status));
                 error.access_denied = matches!(response.status, 401 | 403);
-                error.retry_after_seconds = retry_after(response.retry_after.as_deref(), now);
+                error.retry_after_seconds =
+                    retry_after(response.retry_after.as_deref(), now_secs());
                 return Err(error);
             }
             if request.cancelled() {

@@ -262,6 +262,7 @@ fn server(
                     }
                 }
             };
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(3)))
                 .unwrap();
@@ -444,7 +445,7 @@ impl PriceProvider for ErrorProvider {
 fn local_mode_never_calls_provider_and_retry_after_blocks_early_requests() {
     let dir = Temp::new();
     let manager = PricingManager::new(1601, dir.0.clone());
-    let now = now_secs();
+    let now = now_secs() + 10_000;
     let mut error = ProviderError::new("TITrack HTTP 429");
     error.retry_after_seconds = Some(3600);
     let provider = ErrorProvider {
@@ -466,7 +467,7 @@ fn backoff_and_access_denial_do_not_spin_or_bypass() {
     let dir = Temp::new();
     let manager = PricingManager::new(1601, dir.0.clone());
     manager.set_source(SourceMode::Automatic).unwrap();
-    let mut now = now_secs();
+    let mut now = now_secs() + 10_000;
     let provider = ErrorProvider {
         calls: AtomicU64::new(0),
         error: ProviderError::new("TITrack HTTP 503"),
@@ -562,4 +563,20 @@ fn server_page_cap_below_requested_limit_does_not_truncate_sync() {
     let result = fetch_table(&mock, 1601, now, &request(), 1000, 50).unwrap();
     assert_eq!(result.records.len(), 2);
     assert_eq!(mock.queries.lock().unwrap().len(), 4);
+}
+
+#[test]
+fn retry_after_starts_at_error_receipt_not_beginning_of_slow_sync() {
+    let dir = Temp::new();
+    let manager = PricingManager::new(1601, dir.0.clone());
+    manager.set_source(SourceMode::Automatic).unwrap();
+    let now = now_secs();
+    let mut error = ProviderError::new("TITrack HTTP 429");
+    error.retry_after_seconds = Some(600);
+    let provider = ErrorProvider {
+        calls: AtomicU64::new(0),
+        error,
+    };
+    manager.refresh_at(&provider, now - 120, true);
+    assert!(manager.state.read().unwrap().next_request_at >= now + 600);
 }

@@ -568,7 +568,9 @@ impl PricingManager {
                     .saturating_mul(1u64 << state.failures.saturating_sub(1).min(4)))
                 .min(3600);
                 let delay = error.retry_after_seconds.unwrap_or(0).max(backoff);
-                state.next_request_at = now.saturating_add(delay.min(i64::MAX as u64) as i64);
+                state.next_request_at = now
+                    .max(now_secs())
+                    .saturating_add(delay.min(i64::MAX as u64) as i64);
                 state.access_denied = error.access_denied;
                 state.connection = if error.access_denied {
                     "access_denied"

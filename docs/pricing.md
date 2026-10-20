@@ -124,7 +124,7 @@ inventoryValue с добавлением новых дропов и редким
 
 ## Проверки и Windows
 
-Локально пройден 32 Rust unit/integration сценариев по реальным исходным модулям
+Локально пройден 33 Rust unit/integration сценариев по реальным исходным модулям
 без Linux GUI: JSON, atomic write errors, unknown/zero/stale, сезоны, источники,
 fixture TITrack, parser → FSM → сериализованный LootDrop, сохранение auction exclusion.
 Это не нативная компиляция Tauri: Linux GTK/WebKit не установлены.
