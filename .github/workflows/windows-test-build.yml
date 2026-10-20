@@ -25,6 +25,8 @@ concurrency:
 
 jobs:
   build-windows:
+    # Preserve the pre-existing Full check name for branch protection.
+    name: ${{ matrix.mode == 'full' && 'build-windows' || 'build-windows (fast)' }}
     if: github.repository == 'deanwell15/sattatracker-TLI'
     # PRs verify BOTH modes. Manual runs build only the selected mode.
     strategy:

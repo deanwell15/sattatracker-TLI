@@ -134,9 +134,9 @@ Full: `-f build_mode=full`. Дополнительная live-диагности
 `-f build_mode=full -F live_prices=true`.
 
 PR в main автоматически запускает оба режима, полный набор проверок не убирается.
-Перед merge необходим зелёный Full (`build-windows (full)`) и Fast; если в branch
-protection ранее требовалось старое имя `build-windows`, правило нужно сопоставить
-с новыми matrix check names. Настройки защиты ветки этим PR не меняются.
+Перед merge необходим зелёный Full (`build-windows`) и Fast (`build-windows (fast)`).
+Имя прежней Full-проверки `build-windows` сохранено для совместимости с существующими
+required checks. Настройки защиты ветки этим PR не меняются.
 Результаты: Artifacts → `deanfinite-windows-fast-x64-<run>-<attempt>` либо
 `deanfinite-windows-full-x64-<run>-<attempt>`. Хранение 14 дней, compression-level=0.
 
