@@ -28,7 +28,7 @@ let mockedPricing: PricingSnapshot | null = null;
 mockIPC((cmd, payload) => {
   commands.push(cmd);
   if (cmd === 'get_pricing_snapshot') return mockedPricing;
-  if (cmd === 'set_price_source') return { ...mockedPricing!, revision: mockedPricing!.revision + 1, source: 'automatic', connection: 'blocked', error: 'TITrack access not approved' };
+  if (cmd === 'set_price_source') return { ...mockedPricing!, revision: mockedPricing!.revision + 1, source: 'automatic', connection: 'offline_cache', error: 'TITrack HTTP 503' };
   if (cmd === 'import_price_json') {
     if ((payload as {json:string}).json !== '{"fixture":true}') throw new Error('Invalid price JSON fixture');
     return { ...mockedPricing!, revision: mockedPricing!.revision + 2 };
@@ -97,7 +97,7 @@ try {
   const settingsRoot = document.createElement('div'); document.body.append(settingsRoot);
   const settingsApp = createApp(PricingSettings).use(pinia); settingsApp.mount(settingsRoot);
   const select = settingsRoot.querySelector('select')!; select.value = 'automatic'; select.dispatchEvent(new Event('change'));
-  await eventually(() => settingsRoot.textContent!.includes('TITrack access not approved'), 'Unavailable TITrack status not shown');
+  await eventually(() => settingsRoot.textContent!.includes('TITrack HTTP 503'), 'Unavailable TITrack status not shown');
   const input = settingsRoot.querySelector<HTMLInputElement>('input[type=file]')!;
   for (const [json, message] of [['{bad', 'Invalid price JSON fixture'], ['{"fixture":true}', 'Local prices imported.']] as const) {
     const files = new DataTransfer(); files.items.add(new File([json], 'prices.json', {type:'application/json'})); input.files = files.files; input.dispatchEvent(new Event('change'));

@@ -1,4 +1,7 @@
-# TITrack live API — диагностика подключения
+# TITrack live API — история диагностики подключения
+
+> Исторический отчёт для коммита ca2a7c7, до подтверждения пользователем HTTP 200.
+> Текущая реализация Automatic включена: [новый отчёт](TITRACK_INTEGRATION_REPORT.md).
 
 Дата проверки: **20 октября 2026, 12:47:24 (Asia/Yerevan)**.
 PR: [#4](https://github.com/deanwell15/sattatracker-TLI/pull/4).

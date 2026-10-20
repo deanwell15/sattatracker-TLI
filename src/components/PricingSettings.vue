@@ -7,8 +7,10 @@
       <option value="local_json">Local JSON</option>
     </select>
     <p class="setting-desc">Season: {{ store.pricing?.season_id ?? 1601 }} · {{ store.pricing?.available_count ?? 1 }} priced IDs (including FE)</p>
+    <p class="setting-desc">Cloud cache: {{ store.pricing?.cloud_count ?? 0 }} IDs · Local table: {{ store.pricing?.local_count ?? 0 }} IDs</p>
     <p class="setting-desc">Connection: {{ store.pricing?.connection ?? 'initializing' }} · refresh: 5 minutes</p>
     <p class="setting-desc">Last successful load: {{ store.pricing?.last_success_at ?? 'never' }}</p>
+    <p v-if="store.pricing?.next_retry_at" class="setting-desc">Next request: {{ store.pricing.next_retry_at }}</p>
     <p v-if="store.pricing?.error" class="text-xs text-amber-300" role="status">{{ store.pricing.error }}</p>
     <label class="setting-name" for="price-json">Import local prices (.json, max 4 MiB)</label>
     <input id="price-json" type="file" accept=".json,application/json" @change="importPrices" :disabled="busy" class="text-xs" />

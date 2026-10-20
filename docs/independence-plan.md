@@ -22,12 +22,12 @@ cache/assets/WebView отделены identifier, автоматического
 | Компонент | Состояние | Следующий шаг |
 |---|---|---|
 | Прежний сервер цен и environment override | Полностью удалены из runtime, скрытого fallback нет | Регрессионная проверка исходников и browser smoke в CI |
-| TITrack aggregated_prices | Provider/fixture adapter готов, production gate закрыт | Согласовать read-only доступ, ключ, квоту, SS14 live; затем добавить bounded HTTP transport |
+| TITrack aggregated_prices | HTTPS provider включён, read-only SS14 доступ подтверждён пользователем | Проверить новую Windows-сборку в игре; соблюдать Retry-After и контролировать freshness |
 | Upstream assets/Google Fonts | Удалены runtime загрузки; оригинальная bundled графика | Сохранять manifest/hash tests; дополнить отсутствующие иконки отдельной задачей |
 | WebView2 | Требуется Windows приложению | Продолжать документировать системную зависимость standalone kit |
 
 Не добавлять другой API вместо TITrack без решения пользователя. Локальный JSON
-даёт работоспособную независимую замену до разрешения внешнего доступа.
+даёт работоспособную независимую замену для полностью offline режима.
 
 ### 2.2. Ресурсы и права
 

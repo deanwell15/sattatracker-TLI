@@ -135,7 +135,7 @@ jobs:
           The standalone EXE requires a separately installed Microsoft Edge WebView2 Runtime.
           It is NOT a fully portable/offline package: the existing app still requests
           administrator privileges, stores config.json in its own AppConfig directory, uses LocalAppData
-          and WebView storage. Local JSON prices work offline; TITrack access is gated.
+          and WebView storage. Automatic uses read-only TITrack HTTPS; Local JSON prices work fully offline.
           Original item icons and animation frames are bundled; no remote graphics/fonts are loaded.
           See ASSET_LICENSES.md for original resource provenance and rights notices.
           Deanfinite uses io.github.deanwell15.deanfinite and separate app data.
@@ -145,6 +145,7 @@ jobs:
           '@ | Set-Content -LiteralPath (Join-Path $outputRoot 'RUNNING.txt') -Encoding utf8
 
           Copy-Item -LiteralPath 'docs/pricing.md' -Destination (Join-Path $outputRoot 'PRICING_REPORT.md')
+          Copy-Item -LiteralPath 'docs/TITRACK_INTEGRATION_REPORT.md' -Destination (Join-Path $outputRoot 'TITRACK_INTEGRATION_REPORT.md')
           $pricingEvidence = @"
 
           ## Фактические проверки Windows runner
@@ -156,6 +157,7 @@ jobs:
           Итог всего workflow, включая upload, проверяйте по ссылке Run.
           "@
           Add-Content -LiteralPath (Join-Path $outputRoot 'PRICING_REPORT.md') -Value $pricingEvidence -Encoding utf8
+          Add-Content -LiteralPath (Join-Path $outputRoot 'TITRACK_INTEGRATION_REPORT.md') -Value $pricingEvidence -Encoding utf8
 
           $package = Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json
           $tauri = Get-Content -LiteralPath 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json

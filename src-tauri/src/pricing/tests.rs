@@ -131,10 +131,6 @@ fn titrack_fixture_is_aggregate_only_and_validated() {
     ] {
         assert!(TiTrackPriceProvider::decode_aggregates(&bad, 1601, now).is_err());
     }
-    assert!(TiTrackPriceProvider
-        .load(1601, now)
-        .unwrap_err()
-        .contains("not enabled"));
 }
 #[test]
 fn unavailable_automatic_keeps_local_and_persists_mode_without_network() {
@@ -143,10 +139,10 @@ fn unavailable_automatic_keeps_local_and_persists_mode_without_network() {
     p.import_json(&json(1601, serde_json::json!({"123456":2})))
         .unwrap();
     p.set_source(SourceMode::Automatic).unwrap();
-    p.refresh();
+    p.refresh_from(&OfflineProvider);
     assert_eq!(p.get_quote("123456").value, Some(2.0));
-    assert_eq!(p.snapshot().connection, "blocked");
-    assert!(!p.snapshot().titrack_enabled);
+    assert_eq!(p.snapshot().connection, "offline_cache");
+    assert!(p.snapshot().titrack_enabled);
     assert_eq!(p.snapshot().refresh_seconds, 300);
     let second = PricingManager::new(1601, dir.0.clone());
     second.initialize();
@@ -180,7 +176,7 @@ fn duplicate_ids_are_rejected_without_hiding_invalid_values() {
 }
 
 #[test]
-fn local_mode_does_not_read_automatic_prices_and_stale_aggregate_can_fall_back() {
+fn local_mode_ignores_cloud_and_stale_cloud_remains_primary() {
     let dir = Temp::new();
     let p = PricingManager::new(1601, dir.0.clone());
     let r = PriceRecord {
@@ -194,6 +190,7 @@ fn local_mode_does_not_read_automatic_prices_and_stale_aggregate_can_fall_back()
         season_id: 1601,
         currency: "FE".into(),
         prices: BTreeMap::from([("123456".into(), r)]),
+        sync: None,
     };
     atomic_write(
         &p.season_path(1601, "automatic.json"),
@@ -214,8 +211,9 @@ fn local_mode_does_not_read_automatic_prices_and_stale_aggregate_can_fall_back()
         .get_mut("123456")
         .unwrap()
         .updated_at = timestamp(now_secs() - STALE_SECONDS - 1);
-    assert_eq!(p.get_quote("123456").value, Some(2.0));
-    assert_eq!(p.snapshot().prices["123456"].value, Some(2.0));
+    assert_eq!(p.get_quote("123456").value, Some(8.0));
+    assert_eq!(p.get_quote("123456").status, PriceStatus::Stale);
+    assert_eq!(p.snapshot().prices["123456"].value, Some(8.0));
 }
 
 struct FixtureProvider;
@@ -235,7 +233,7 @@ fn aggregate_fixture_flows_through_manager_cache_and_offline_restart() {
     assert_eq!(p.get_quote("123456").value, Some(12.5));
     assert_eq!(p.get_quote("654321").status, PriceStatus::Known);
     let bytes = fs::read(p.season_path(1601, "automatic.json")).unwrap();
-    p.refresh(); // Production is unavailable: known fixture cache survives.
+    p.refresh_from(&OfflineProvider); // A controlled offline failure preserves the fixture cache.
     assert_eq!(p.get_quote("123456").value, Some(12.5));
     assert_eq!(
         fs::read(p.season_path(1601, "automatic.json")).unwrap(),
@@ -273,4 +271,11 @@ fn provider_invalid_batch_does_not_overwrite_valid_cache() {
         before
     );
     assert!(p.snapshot().error.is_some());
+}
+
+struct OfflineProvider;
+impl PriceProvider for OfflineProvider {
+    fn load(&self, _: u32, _: i64) -> Result<BTreeMap<String, PriceRecord>, String> {
+        Err("Controlled offline fixture; no network".into())
+    }
 }

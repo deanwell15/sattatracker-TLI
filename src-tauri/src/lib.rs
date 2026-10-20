@@ -130,12 +130,12 @@ async fn set_price_source(
     let manager = state.inner().clone();
     let snapshot = tauri::async_runtime::spawn_blocking(move || {
         manager.set_source(source)?;
-        manager.refresh();
         Ok::<_, String>(manager.snapshot())
     })
     .await
     .map_err(|e| e.to_string())??;
     let _ = app.emit("price_snapshot", &snapshot);
+    app.state::<Arc<tokio::sync::Notify>>().notify_one();
     Ok(snapshot)
 }
 
@@ -214,17 +214,22 @@ pub fn run() {
             // unscoped prices_cache.json is deliberately never imported.
             let pricing = Arc::new(PricingManager::new(1601, local_data_dir.join("prices")));
             app.manage(pricing.clone());
+            let pricing_wake = Arc::new(tokio::sync::Notify::new());
+            app.manage(pricing_wake.clone());
             let price_app = app.handle().clone();
             let background_pricing = pricing.clone();
             task::spawn(async move {
                 let initial = background_pricing.clone();
                 let _ = tokio::task::spawn_blocking(move || initial.initialize()).await;
+                let _ = price_app.emit("price_snapshot", background_pricing.snapshot());
                 loop {
                     let manager = background_pricing.clone();
                     let _ = tokio::task::spawn_blocking(move || manager.refresh()).await;
                     let _ = price_app.emit("price_snapshot", background_pricing.snapshot());
-                    tokio::time::sleep(std::time::Duration::from_secs(pricing::REFRESH_SECONDS))
-                        .await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(background_pricing.next_refresh_delay())) => {},
+                        _ = pricing_wake.notified() => {},
+                    }
                 }
             });
 

@@ -14,8 +14,11 @@ export interface PricingSnapshot {
   last_success_at: string | null;
   error: string | null;
   available_count: number;
+  cloud_count?: number;
+  local_count?: number;
   refresh_seconds: number;
   titrack_enabled: boolean;
+  next_retry_at?: string | null;
   prices: Record<string, PriceQuote>;
 }
 export const unknownPrice = (): PriceQuote => ({ value: null, status: 'unknown', source: null, updated_at: null, received_at: null });

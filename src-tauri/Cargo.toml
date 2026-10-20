@@ -30,6 +30,7 @@ regex = "1.12.3"
 tokio = { version = "1.51.1", features = ["full"] }
 sysinfo = "0.38.4"
 lazy_static = "1.5.0"
+reqwest = { version = "0.13.2", default-features = false, features = ["blocking", "rustls"] }
 
 [profile.release]
 strip = true

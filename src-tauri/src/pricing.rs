@@ -4,15 +4,18 @@ use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+#[path = "pricing/titrack.rs"]
+mod titrack;
 use std::time::{SystemTime, UNIX_EPOCH};
+pub use titrack::{ProviderBatch, ProviderError, SyncMetadata, SyncRequest, TiTrackPriceProvider};
 
 pub const REFRESH_SECONDS: u64 = 5 * 60;
 pub const STALE_SECONDS: i64 = 24 * 60 * 60;
 pub const MAX_PRICE: f64 = 1_000_000_000.0;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ITEMS: usize = 50_000;
-pub const ACCESS_BLOCK: &str = "TITrack is not enabled: third-party read-only permission, credentials, rate limits and live SS14 coverage have not been confirmed. Local JSON and cached prices remain available.";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -82,6 +85,8 @@ struct CacheDocument {
     currency: String,
     #[serde(deserialize_with = "unique_map")]
     prices: BTreeMap<String, PriceRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sync: Option<SyncMetadata>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -99,8 +104,11 @@ pub struct PricingSnapshot {
     pub last_success_at: Option<String>,
     pub error: Option<String>,
     pub available_count: usize,
+    pub cloud_count: usize,
+    pub local_count: usize,
     pub refresh_seconds: u64,
     pub titrack_enabled: bool,
+    pub next_retry_at: Option<String>,
     pub prices: BTreeMap<String, PriceQuote>,
 }
 
@@ -112,13 +120,30 @@ struct PricingState {
     automatic: BTreeMap<String, PriceRecord>,
     last_success_at: Option<String>,
     error: Option<String>,
+    sync: SyncMetadata,
+    connection: String,
+    last_network_error: Option<String>,
+    failures: u32,
+    next_request_at: i64,
+    access_denied: bool,
 }
 
 /// Providers return validated records; consumers do not know any HTTP API.
-/// A future approved network provider must apply request timeout and bounded
-/// pagination/retries before returning a complete batch. No credentials ship here.
+/// Network fetches return only complete validated batches; public HTTPS
+/// configuration belongs to the TITrack provider, never to game events.
 pub trait PriceProvider {
     fn load(&self, season_id: u32, now: i64) -> Result<BTreeMap<String, PriceRecord>, String>;
+    fn fetch(
+        &self,
+        season_id: u32,
+        now: i64,
+        _request: &SyncRequest,
+    ) -> Result<ProviderBatch, ProviderError> {
+        Ok(ProviderBatch {
+            records: self.load(season_id, now)?,
+            sync: None,
+        })
+    }
 }
 pub struct LocalJsonPriceProvider<'a> {
     pub json: &'a str,
@@ -162,14 +187,6 @@ impl PriceProvider for LocalJsonPriceProvider<'_> {
     }
 }
 
-pub struct TiTrackPriceProvider;
-impl PriceProvider for TiTrackPriceProvider {
-    fn load(&self, season_id: u32, _now: i64) -> Result<BTreeMap<String, PriceRecord>, String> {
-        Self::mapped_season(season_id)?;
-        // Deliberate production gate. A published client key is NOT consent.
-        Err(ACCESS_BLOCK.into())
-    }
-}
 impl TiTrackPriceProvider {
     pub fn mapped_season(deanfinite_season: u32) -> Result<u32, String> {
         match deanfinite_season {
@@ -181,7 +198,6 @@ impl TiTrackPriceProvider {
     }
     /// Adapter for the researched PostgREST aggregated_prices response. Fixture
     /// tests exercise this method; production does not mistake fixtures for data.
-    #[allow(dead_code)]
     pub fn decode_aggregates(
         json: &str,
         season_id: u32,
@@ -192,6 +208,8 @@ impl TiTrackPriceProvider {
             config_base_id: u64,
             season_id: u32,
             price_fe_median: f64,
+            price_fe_p10: Option<f64>,
+            price_fe_p90: Option<f64>,
             unique_devices: u32,
             submission_count: u32,
             updated_at: String,
@@ -212,6 +230,11 @@ impl TiTrackPriceProvider {
             }
             if row.unique_devices < 3 || row.submission_count < row.unique_devices {
                 return Err("TITrack aggregate has insufficient community observations".into());
+            }
+            for value in [row.price_fe_p10, row.price_fe_p90].into_iter().flatten() {
+                if !value.is_finite() || !(0.0..=MAX_PRICE).contains(&value) {
+                    return Err("Invalid TITrack percentile".into());
+                }
             }
             let id = row.config_base_id.to_string();
             validate_value(&id, row.price_fe_median)?;
@@ -240,6 +263,8 @@ pub struct PricingManager {
     state: RwLock<PricingState>,
     // Serialize import/source/season/load so a late result cannot cross seasons.
     operation: Mutex<()>,
+    generation: Arc<AtomicU64>,
+    refreshing: AtomicBool,
 }
 impl PricingManager {
     pub fn new(season_id: u32, root: PathBuf) -> Self {
@@ -253,8 +278,16 @@ impl PricingManager {
                 automatic: BTreeMap::new(),
                 last_success_at: None,
                 error: None,
+                sync: SyncMetadata::default(),
+                connection: "cached".into(),
+                last_network_error: None,
+                failures: 0,
+                next_request_at: 0,
+                access_denied: false,
             }),
             operation: Mutex::new(()),
+            generation: Arc::new(AtomicU64::new(0)),
+            refreshing: AtomicBool::new(false),
         }
     }
     pub fn initialize(&self) {
@@ -274,6 +307,7 @@ impl PricingManager {
             _ => {}
         }
         self.load_season(&mut state);
+        self.generation.fetch_add(1, Ordering::AcqRel);
         state.revision += 1;
     }
     fn season_path(&self, season: u32, name: &str) -> PathBuf {
@@ -283,13 +317,16 @@ impl PricingManager {
         state.local.clear();
         state.automatic.clear();
         state.last_success_at = None;
+        state.sync = SyncMetadata::default();
+        state.connection = "cached".into();
         for (file, automatic) in [("local.json", false), ("automatic.json", true)] {
             match self.read_cache(state.season_id, file, automatic) {
-                Ok(Some(prices)) => {
+                Ok(Some(doc)) => {
                     if automatic {
-                        state.automatic = prices;
+                        state.sync = doc.sync.unwrap_or_default();
+                        state.automatic = doc.prices;
                     } else {
-                        state.local = prices;
+                        state.local = doc.prices;
                     }
                 }
                 Err(e) => state.error = Some(e),
@@ -302,13 +339,20 @@ impl PricingManager {
             .chain(state.automatic.values())
             .map(|r| r.received_at.clone())
             .max();
+        if state.source == SourceMode::Automatic {
+            state.last_success_at = state
+                .sync
+                .last_success_at
+                .clone()
+                .or(state.last_success_at.take());
+        }
     }
     fn read_cache(
         &self,
         season: u32,
         name: &str,
         automatic: bool,
-    ) -> Result<Option<BTreeMap<String, PriceRecord>>, String> {
+    ) -> Result<Option<CacheDocument>, String> {
         let Some(data) = read_bounded(&self.season_path(season, name))? else {
             return Ok(None);
         };
@@ -335,7 +379,24 @@ impl PricingManager {
                 return Err("Invalid cached source".into());
             }
         }
-        Ok(Some(doc.prices))
+        if let Some(meta) = &doc.sync {
+            if !automatic {
+                return Err("Unexpected cloud metadata in local cache".into());
+            }
+            for time in [&meta.cursor, &meta.last_full_at, &meta.last_success_at]
+                .into_iter()
+                .flatten()
+            {
+                validate_time(time, now)?;
+            }
+            if let Some(cursor) = &meta.cursor {
+                let maximum = doc.prices.values().map(|r| exact_time(&r.updated_at)).max();
+                if maximum.is_none_or(|maximum| exact_time(cursor) > maximum) {
+                    return Err("Cache cursor exceeds successfully stored records".into());
+                }
+            }
+        }
+        Ok(Some(doc))
     }
     pub fn set_season(&self, season: u32) -> Result<(), String> {
         if season == 0 || season > 100_000 {
@@ -344,6 +405,7 @@ impl PricingManager {
         let _op = self.operation.lock().unwrap();
         let mut state = self.state.write().unwrap();
         if state.season_id != season {
+            self.generation.fetch_add(1, Ordering::AcqRel);
             state.season_id = season;
             state.error = None;
             self.load_season(&mut state);
@@ -362,7 +424,11 @@ impl PricingManager {
             &serde_json::to_vec_pretty(&settings).map_err(|e| e.to_string())?,
         )?;
         let mut state = self.state.write().unwrap();
+        self.generation.fetch_add(1, Ordering::AcqRel);
         state.source = source;
+        if state.connection == "updating" {
+            state.connection = "cached".into();
+        }
         state.error = None;
         state.revision += 1;
         Ok(())
@@ -376,6 +442,7 @@ impl PricingManager {
             season_id: season,
             currency: "FE".into(),
             prices: records.clone(),
+            sync: None,
         };
         atomic_write(
             &self.season_path(season, "local.json"),
@@ -390,69 +457,140 @@ impl PricingManager {
         Ok(())
     }
     pub fn refresh(&self) {
-        self.refresh_from(&TiTrackPriceProvider);
+        self.refresh_at(&TiTrackPriceProvider, now_secs(), true);
     }
+    #[cfg(test)]
     fn refresh_from(&self, provider: &dyn PriceProvider) {
-        let _op = self.operation.lock().unwrap();
-        let (season, source) = {
-            let state = self.state.read().unwrap();
-            (state.season_id, state.source.clone())
-        };
-        if source == SourceMode::Automatic {
-            // Never hold the valuation lock while a provider loads data. The
-            // production provider is gated; tests inject fixture/error providers.
-            let now = now_secs();
-            let result = provider.load(season, now).and_then(|incoming| {
-                if incoming.len() > MAX_ITEMS {
-                    return Err("Too many provider prices".into());
-                }
-                for (id, record) in &incoming {
-                    validate_value(id, record.value)?;
-                    validate_time(&record.updated_at, now)?;
-                    validate_time(&record.received_at, now)?;
-                    if record.source != "titrack_aggregate" {
-                        return Err("Unexpected automatic price source".into());
-                    }
-                }
-                let mut merged = self.state.read().unwrap().automatic.clone();
-                for (id, record) in incoming {
-                    // An incomplete batch or an older observation cannot destroy
-                    // existing known estimates. Their original timestamps age.
-                    let replace = merged
-                        .get(&id)
-                        .map(|previous| {
-                            parse_time(&record.updated_at).unwrap()
-                                >= parse_time(&previous.updated_at).unwrap()
-                        })
-                        .unwrap_or(true);
-                    if replace {
-                        merged.insert(id, record);
-                    }
-                }
-                let doc = CacheDocument {
-                    schema_version: 1,
-                    season_id: season,
-                    currency: "FE".into(),
-                    prices: merged.clone(),
-                };
-                atomic_write(
-                    &self.season_path(season, "automatic.json"),
-                    &serde_json::to_vec_pretty(&doc).map_err(|e| e.to_string())?,
-                )?;
-                Ok(merged)
-            });
-            let mut state = self.state.write().unwrap();
-            match result {
-                Ok(prices) => {
-                    state.automatic = prices;
-                    state.last_success_at = Some(timestamp(now));
-                    state.error = None;
-                }
-                Err(error) => state.error = Some(error),
+        self.refresh_at(provider, now_secs(), false);
+    }
+    fn refresh_at(&self, provider: &dyn PriceProvider, now: i64, scheduled: bool) {
+        if self
+            .refreshing
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        struct Reset<'a>(&'a AtomicBool);
+        impl Drop for Reset<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
             }
         }
-        // Also refresh stale statuses without treating them as drops.
-        self.state.write().unwrap().revision += 1;
+        let _reset = Reset(&self.refreshing);
+        let (season, generation, request) = {
+            let _op = self.operation.lock().unwrap();
+            let mut state = self.state.write().unwrap();
+            if state.source != SourceMode::Automatic
+                || scheduled && (state.access_denied || now < state.next_request_at)
+            {
+                state.revision += 1;
+                return;
+            }
+            let generation = self.generation.load(Ordering::Acquire);
+            state.connection = "updating".into();
+            state.revision += 1;
+            (
+                state.season_id,
+                generation,
+                SyncRequest {
+                    metadata: state.sync.clone(),
+                    cancellation: Some((self.generation.clone(), generation)),
+                },
+            )
+        };
+        // NO mutex/RwLock is held while HTTPS reads/validates pages.
+        let result = provider.fetch(season, now, &request);
+        let _op = self.operation.lock().unwrap();
+        if self.generation.load(Ordering::Acquire) != generation {
+            return;
+        }
+        let result = result.and_then(|batch| {
+            if batch.records.len() > MAX_ITEMS {
+                return Err("Too many provider prices".to_string().into());
+            }
+            for (id, record) in &batch.records {
+                validate_value(id, record.value)?;
+                validate_time(&record.updated_at, now)?;
+                validate_time(&record.received_at, now_secs())?;
+                if record.source != "titrack_aggregate" {
+                    return Err("Unexpected automatic price source".to_string().into());
+                }
+            }
+            let mut merged = self.state.read().unwrap().automatic.clone();
+            for (id, record) in batch.records {
+                if merged
+                    .get(&id)
+                    .map(|previous| {
+                        exact_time(&record.updated_at) >= exact_time(&previous.updated_at)
+                    })
+                    .unwrap_or(true)
+                {
+                    merged.insert(id, record);
+                }
+            }
+            let sync = batch
+                .sync
+                .unwrap_or_else(|| self.state.read().unwrap().sync.clone());
+            let doc = CacheDocument {
+                schema_version: 1,
+                season_id: season,
+                currency: "FE".into(),
+                prices: merged.clone(),
+                sync: Some(sync.clone()),
+            };
+            atomic_write(
+                &self.season_path(season, "automatic.json"),
+                &serde_json::to_vec_pretty(&doc).map_err(|e| e.to_string())?,
+            )?;
+            Ok((merged, sync))
+        });
+        let mut state = self.state.write().unwrap();
+        match result {
+            Ok((prices, sync)) => {
+                state.automatic = prices;
+                state.sync = sync;
+                state.last_success_at = Some(timestamp(now_secs()));
+                state.last_network_error = None;
+                state.connection = "online".into();
+                state.failures = 0;
+                state.next_request_at = now.saturating_add(REFRESH_SECONDS as i64);
+                eprintln!(
+                    "[pricing] TITrack sync complete: season={}, cached_ids={}",
+                    season,
+                    state.automatic.len()
+                );
+            }
+            Err(error) if error.cancelled => {}
+            Err(error) => {
+                state.failures = state.failures.saturating_add(1);
+                let backoff = (REFRESH_SECONDS
+                    .saturating_mul(1u64 << state.failures.saturating_sub(1).min(4)))
+                .min(3600);
+                let delay = error.retry_after_seconds.unwrap_or(0).max(backoff);
+                state.next_request_at = now.saturating_add(delay.min(i64::MAX as u64) as i64);
+                state.access_denied = error.access_denied;
+                state.connection = if error.access_denied {
+                    "access_denied"
+                } else {
+                    "offline_cache"
+                }
+                .into();
+                eprintln!(
+                    "[pricing] {}; season={}, retry_delay_seconds={}",
+                    error.message, season, delay
+                );
+                state.last_network_error = Some(error.message);
+            }
+        }
+        state.revision += 1;
+    }
+    pub fn next_refresh_delay(&self) -> u64 {
+        let state = self.state.read().unwrap();
+        if state.source == SourceMode::LocalJson || state.access_denied {
+            return REFRESH_SECONDS;
+        }
+        (state.next_request_at.saturating_sub(now_secs()).max(1) as u64).min(REFRESH_SECONDS)
     }
     pub fn snapshot(&self) -> PricingSnapshot {
         let state = self.state.read().unwrap();
@@ -460,10 +598,9 @@ impl PricingManager {
         let mut records = state.local.clone();
         if state.source == SourceMode::Automatic {
             for (id, record) in &state.automatic {
-                // Prefer a fresh aggregate; keep a newer local fallback over stale data.
-                if !is_stale(record, now) || !records.contains_key(id) {
-                    records.insert(id.clone(), record.clone());
-                }
+                // Cloud is primary, including its explicit stale valuation.
+                // Local imports fill IDs absent from the cloud table.
+                records.insert(id.clone(), record.clone());
             }
         }
         let mut prices: BTreeMap<_, _> = records
@@ -476,22 +613,24 @@ impl PricingManager {
             season_id: state.season_id,
             source: state.source.clone(),
             connection: if state.source == SourceMode::Automatic {
-                "blocked"
+                state.connection.clone()
             } else {
-                "offline_local"
-            }
-            .into(),
+                "offline_local".into()
+            },
             last_success_at: state.last_success_at.clone(),
-            error: state.error.clone().or_else(|| {
-                if state.source == SourceMode::Automatic {
-                    Some(ACCESS_BLOCK.into())
-                } else {
-                    None
-                }
-            }),
+            error: if state.source == SourceMode::Automatic {
+                state.last_network_error.clone().or(state.error.clone())
+            } else {
+                state.error.clone()
+            },
             available_count: prices.len(),
+            cloud_count: state.automatic.len(),
+            local_count: state.local.len(),
             refresh_seconds: REFRESH_SECONDS,
-            titrack_enabled: false,
+            titrack_enabled: true,
+            next_retry_at: chrono::DateTime::from_timestamp(state.next_request_at, 0)
+                .filter(|_| state.source == SourceMode::Automatic && state.next_request_at > now)
+                .map(|time| time.to_rfc3339()),
             prices,
         }
     }
@@ -505,12 +644,7 @@ impl PricingManager {
         let state = self.state.read().unwrap();
         let now = now_secs();
         let record = if state.source == SourceMode::Automatic {
-            state
-                .automatic
-                .get(id)
-                .filter(|r| !is_stale(r, now))
-                .or_else(|| state.local.get(id))
-                .or_else(|| state.automatic.get(id))
+            state.automatic.get(id).or_else(|| state.local.get(id))
         } else {
             state.local.get(id)
         };
@@ -590,6 +724,9 @@ fn timestamp(now: i64) -> String {
     chrono::DateTime::from_timestamp(now, 0)
         .unwrap()
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+fn exact_time(value: &str) -> chrono::DateTime<chrono::FixedOffset> {
+    chrono::DateTime::parse_from_rfc3339(value).expect("validated timestamp")
 }
 fn parse_time(value: &str) -> Result<i64, String> {
     chrono::DateTime::parse_from_rfc3339(value)
