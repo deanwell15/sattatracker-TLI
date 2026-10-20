@@ -152,9 +152,8 @@
           transition: 'none',
         }"
       >
-        <img
+        <AssetImage
           :src="getIcon(ci.item_id)"
-          @error="($event.target as HTMLImageElement).style.display='none'"
           class="w-full h-full object-contain"
         />
       </div>
@@ -192,16 +191,15 @@
           transition: 'none',
         }"
       >
-        <img
+        <AssetImage
           :src="getIcon(cf.item_id)"
-          @error="($event.target as HTMLImageElement).style.display='none'"
           class="w-full h-full object-contain"
         />
       </div>
 
     </template>
 
-    <img
+    <AssetImage
       v-for="p in coinParticles"
       :key="p.id"
       :src="getAnim(`coin/coin_${p.frame}`)"
@@ -235,6 +233,7 @@
 </template>
 
 <script setup lang="ts">
+import AssetImage from './AssetImage.vue';
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useTrackerStore, type LootItem } from '../stores/trackerStore';
 import { getIcon, getAnim } from '../utils/assets';

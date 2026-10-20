@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && vite build && node tools/check-frontend-assets.mjs",
     "preview": "vite preview",
+    "test:assets": "vue-tsc --noEmit -p tests/tsconfig.json && node --test tests/packaged-exe.test.mjs && node tests/assets.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

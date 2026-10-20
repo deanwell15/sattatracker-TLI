@@ -1,26 +1,25 @@
-import { invoke } from '@tauri-apps/api/core';
+import itemPlaceholder from '../assets/local/item.svg?url&no-inline';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { ref } from 'vue';
+import icons from '../assets/original-icons.json';
 
-export const assetsState = ref({
-    basePath: '',
+const iconIds = new Set(icons.ids);
+const frames = import.meta.glob<string>('../assets/animations/**/*.png', {
+  eager: true, query: '?url&no-inline', import: 'default',
 });
 
-export async function initAssets() {
-    try {
-        const path: string = await invoke('get_assets_path');
-        assetsState.value.basePath = path;
-    } catch (e) {
-        console.error('Failed to get assets path', e);
-    }
+// Unknown IDs and failed images alone use the neutral fallback.
+export function getIcon(id: string | number): string {
+  const key = String(id);
+  if (!iconIds.has(key)) return itemPlaceholder;
+  // This named custom protocol accepts only catalog icon names, never file paths.
+  return `${convertFileSrc(`${key}.png`, 'deanfinite-icon')}?v=${icons.revision}`;
 }
 
-export function getIcon(id: string | number) {
-    if (!assetsState.value.basePath) return '';
-    return convertFileSrc(`${assetsState.value.basePath}\\icons\\${id}.png`);
-}
-
-export function getAnim(subpath: string) {
-    if (!assetsState.value.basePath) return '';
-    return convertFileSrc(`${assetsState.value.basePath}\\piganim\\${subpath}.png`);
+export function getAnim(subpath: string): string {
+  const path = /^pig_\d+$/.test(subpath)
+    ? `../assets/animations/pig/${subpath}.png`
+    : /^coin\/coin_\d+$/.test(subpath)
+      ? `../assets/animations/${subpath}.png`
+      : '';
+  return frames[path] ?? itemPlaceholder;
 }

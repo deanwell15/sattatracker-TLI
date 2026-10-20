@@ -4,7 +4,7 @@
     style="background: transparent; min-width: 80px; min-height: 80px;"
     @click="triggerCoin"
   >
-    <img
+    <AssetImage
       :src="frameSrc"
       class="w-full h-full object-contain pointer-events-none select-none"
       draggable="false"
@@ -19,6 +19,7 @@
 </template>
 
 <script setup lang="ts">
+import AssetImage from './AssetImage.vue';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useTrackerStore } from '../stores/trackerStore';
   import { getAnim } from '../utils/assets';

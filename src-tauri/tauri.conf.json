@@ -26,15 +26,16 @@
     "security": {
       "csp": null,
       "assetProtocol": {
-        "enable": true,
-        "scope": [
-          "**"
-        ]
+        "enable": false,
+        "scope": []
       }
     }
   },
   "bundle": {
     "active": true,
+    "resources": {
+      "resources/icons/*.png": "icons/"
+    },
     "targets": "all",
     "icon": [
       "icons/32x32.png",

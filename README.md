@@ -19,7 +19,7 @@
 | F8 | Открыть меню виджетов и настройки |
 
 В игре включить логирование через ESC, открыть инвентарь и выполнить сортировку.
-Ребрендинг не меняет parser, цены, расчёты и поведение виджетов. Известные ошибки
+Графические изменения не меняют parser, цены и расчёты. Известные ошибки
 статистики из аудита остаются отдельной задачей.
 
 ## Сборка и проверка
@@ -33,11 +33,12 @@
 
 ```shell
 npm ci
+npm run test:assets # requires installed Chrome/Chromium
 npm run tauri -- dev
 npm run tauri -- build --ci --target x86_64-pc-windows-msvc --bundles nsis,msi -- --locked
 ```
 
-Ожидаемый EXE — **Deanfinite.exe**. Standalone EXE требует Microsoft Edge WebView2
+Ожидаемый EXE — **Deanfinite.exe**. Standalone комплект (`Deanfinite.exe` **вместе с** `icons/`) требует Microsoft Edge WebView2
 Runtime и пока не является полностью portable/offline-приложением. Release
 по-прежнему использует `requireAdministrator`; этот манифест не изменялся.
 
@@ -53,8 +54,7 @@ Windows-пользователя используются:
 |---|---|
 | Backend flags | `%APPDATA%\io.github.deanwell15.deanfinite\config.json` |
 | Цены | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite\prices_cache.json` |
-| Ресурсы | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite\public_assets` |
-| Версия ресурсов / временный архив | Та же LocalAppData-папка: `assets_version.json`, `assets.zip` |
+| Графика | Анимации встроены в EXE; иконки установлены в `icons/` рядом с EXE |
 | WebView2 / localStorage | Собственный профиль под `%LOCALAPPDATA%\io.github.deanwell15.deanfinite` |
 
 Настройки не читаются рядом с EXE или из текущего рабочего каталога. Каталоги
@@ -69,19 +69,20 @@ WebView2 отделён новым identifier. Ручной импорт буд�
 
 ## Текущие внешние зависимости
 
-Ребрендинг пока **не удаляет** прежние сетевые механизмы:
+Оригинальные item icons, 120 рабочих кадров свинки и 122 кадра монет включены
+в репозиторий и Windows-сборку. Иконки — Tauri resources, анимации — встроенный
+frontend. При запуске графика не скачивается. Общая заглушка используется только
+при отсутствующем или повреждённом изображении; неполное покрытие SS14 перечислено
+в [документации графики](docs/local-assets.md).
+[Происхождение и уведомления](ASSET_LICENSES.md).
+Старые public_assets/metadata/ZIP пользователя не читаются и не удаляются.
 
-- Цены: `http://115.231.176.101:8080/get?season_id=N`. Владение и доступность
-  оператора не устанавливаются названием приложения. Сохраняется
-  `TLI_PRICE_API_URL` и прежний формат `{ "<item_id>": { "price": <number> } }`.
-- Иконки/анимации: metadata и `assets.zip` из
-  [sattatrapy/sattatrackerUpdate](https://github.com/sattatrapy/sattatrackerUpdate/releases/tag/Assets).
-  Они скачиваются в собственную папку Deanfinite; чужой архив в этот репозиторий
-  или CI artifact не переносился.
-- Google Fonts CSS и связанные файлы шрифтов.
+Остаются цены `http://115.231.176.101:8080/get?season_id=N`, override
+`TLI_PRICE_API_URL` и прежний формат `{ "<item_id>": { "price": <number> } }`.
+Оператор сервера не подтверждён. UI и bundled графика работают без интернета;
+без сети/кэша свежие цены недоступны. Автообновления самого EXE нет.
+Microsoft WebView2 остаётся обязательной внешней платформой.
 
-При отказе сети доступны только ранее полученные цены/ресурсы; чистый offline
-запуск не гарантирует их наличие. Автообновления самого EXE нет.
 Дальнейшая замена: [план независимости](docs/independence-plan.md).
 
 ## Лицензия и авторство

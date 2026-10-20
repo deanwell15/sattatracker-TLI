@@ -20,8 +20,8 @@ SattaTracker. Версия 1.2.11 пока сохранена. Labels `main`, д
 `widget_*`, permissions/capabilities и Windows requireAdministrator не менялись.
 
 Меняются title HTML, builder, welcome, settings и подпись трея. Существующие
-иконки Tauri не содержат старого текстового бренда и сохранены; favicon использует
-имеющуюся app icon, а не Vite logo. Новый комплект графики — отдельная задача.
+иконки впоследствии заменены собственным геометрическим D-комплектом; favicon,
+tray и установщики используют его. Подробности: [local-assets.md](local-assets.md).
 
 Исходники: [Tauri config](../src-tauri/tauri.conf.json),
 [Cargo](../src-tauri/Cargo.toml), [main](../src-tauri/src/main.rs),
@@ -36,8 +36,8 @@ SattaTracker. Версия 1.2.11 пока сохранена. Labels `main`, д
 |---|---|
 | app_config_dir / config.json | `%APPDATA%\io.github.deanwell15.deanfinite\config.json` |
 | app_local_data_dir / prices_cache.json | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite\prices_cache.json` |
-| public_assets | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite\public_assets` |
-| assets_version.json / временный assets.zip | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite\` |
+| Старый public_assets (не используется) | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite\public_assets` |
+| Старая metadata / временный ZIP (не используются) | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite\` |
 | WebView2 user data directory | `%LOCALAPPDATA%\io.github.deanwell15.deanfinite` |
 
 Это конкретные пути, следующие из конфигурации и source Tauri; наблюдение файлов
@@ -109,7 +109,7 @@ directories. Однако обе используют глобальные F7/F8
    отсутствие config рядом с EXE и отсутствие изменений старых данных.
 6. Изменить backend flags и frontend theme/layout, закрыть и повторно запустить
    Deanfinite из другого рабочего каталога. Проверить сохранение обоих наборов
-   настроек и новых cache/assets. Проверить Save также без найденного игрового лога.
+   настроек и собственного price cache. Проверить Save также без найденного игрового лога.
 7. Проверить лог, overlay, F7/F8, инвентарь и графику. Это проверка сохранения
    поведения, не исправления известных ошибок статистики.
 8. Запустить обе программы, проверить раздельные данные. Зафиксировать, какая
@@ -125,9 +125,9 @@ directories. Однако обе используют глобальные F7/F8
 - SattaTracker и sattatrapy в credits/MIT/upstream URL — сохранённая атрибуция.
 - `com.fedin.sattatracker` встречается только в документации сравнения и проверок
   старой установки, не как новый runtime path.
-- URLs `sattatrapy/sattatrackerUpdate` — пока действующие endpoints assets,
-  сохранённые по условию задачи. Изменён только бренд User-Agent.
-- Цена 115.231.176.101:8080, Google Fonts и WebView2 остаются внешними зависимостями.
+- Автоматические upstream assets/metadata и Google Fonts удалены в графической задаче;
+  старые пользовательские файлы оставлены нетронутыми.
+- Цена 115.231.176.101:8080 и WebView2 остаются внешними зависимостями.
 - Generic localStorage keys сохранены в отдельном WebView-профиле.
 - Parser, FSM, bag manager, PricingManager, налог/прибыль и log processing не
   изменены. В tailer меняется только источник пути cache, уже разрешённого при setup.

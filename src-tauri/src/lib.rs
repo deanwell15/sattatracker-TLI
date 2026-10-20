@@ -1,7 +1,7 @@
-mod assets;
 mod bag_manager;
 mod db;
 mod game_state_machine;
+mod icon_resource;
 mod models;
 mod parser;
 mod pricing;
@@ -98,6 +98,27 @@ fn get_log_path() -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .register_uri_scheme_protocol("deanfinite-icon", |context, request| {
+            let result = if request.method() == tauri::http::Method::GET {
+                context.app_handle().path().resource_dir()
+                    .map_err(|_| icon_resource::IconError::NotFound)
+                    .and_then(|path| icon_resource::read_icon(&path.join("icons"), request.uri().path()))
+            } else {
+                Err(icon_resource::IconError::BadPath)
+            };
+            let (status, bytes, mime) = match result {
+                Ok((bytes, mime)) => (200, bytes, mime),
+                Err(icon_resource::IconError::BadPath) => (400, Vec::new(), "text/plain"),
+                Err(_) => (404, Vec::new(), "text/plain"),
+            };
+            tauri::http::Response::builder()
+                .status(status)
+                .header("Content-Type", mime)
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Cache-Control", "public, max-age=86400")
+                .body(bytes)
+                .expect("static icon response headers")
+        })
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -204,9 +225,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            assets::check_assets_update,
-            assets::download_assets,
-            assets::get_assets_path,
             set_click_through,
             save_settings,
             load_settings,
